@@ -600,15 +600,22 @@ function popularFiltroDatas(){
   sel.value = atual;
 }
 
-function renderStats(){
-  const total = registos.length;
-  const confirmados = registos.filter(r => r.status === 'Confirmado').length;
-  const naoAtendeu = registos.filter(r => r.status === 'Não atendeu').length;
-  const semNome = registos.filter(r => !r.nome).length;
-  const porConfirmar = registos.filter(r => !r.status).length;
+/* Dashboard dinâmico: os cartões refletem sempre o conjunto FILTRADO
+   (busca + data + status), não a lista completa. Quando há um filtro
+   ativo, mostra-se também o total geral entre parêntesis para contexto. */
+function renderStats(lista, filtroAtivo){
+  const total = lista.length;
+  const confirmados = lista.filter(r => r.status === 'Confirmado').length;
+  const naoAtendeu = lista.filter(r => r.status === 'Não atendeu').length;
+  const semNome = lista.filter(r => !r.nome).length;
+  const porConfirmar = lista.filter(r => !r.status).length;
+
+  const totalGeral = registos.length;
+  const contexto = filtroAtivo && totalGeral !== total
+    ? `<span style="font-weight:500;color:var(--ink-faint);"> / ${totalGeral}</span>` : '';
 
   document.getElementById('stats').innerHTML = `
-    <div class="stat"><div class="n">${total}</div><div class="l">Total</div></div>
+    <div class="stat"><div class="n">${total}${contexto}</div><div class="l">${filtroAtivo ? 'Total filtrado' : 'Total'}</div></div>
     <div class="stat accent"><div class="n">${confirmados}</div><div class="l">Confirmados</div></div>
     <div class="stat warn"><div class="n">${naoAtendeu}</div><div class="l">Não atendeu</div></div>
     <div class="stat"><div class="n">${porConfirmar}</div><div class="l">Por confirmar</div></div>
@@ -624,12 +631,12 @@ function statusBadge(status){
 }
 
 function renderizar(){
-  renderStats();
   popularFiltroDatas();
 
   const busca = document.getElementById('searchInput').value.toLowerCase();
   const filtroData = document.getElementById('dataFilter').value;
   const filtroStatus = document.getElementById('statusFilter').value;
+  const filtroAtivo = !!(busca || filtroData || filtroStatus);
 
   const tbody = document.getElementById('tbody');
   const filtrados = registos.filter(r => {
@@ -639,6 +646,8 @@ function renderizar(){
     if(busca && !(`${r.ordem} ${r.nome} ${r.tecnico}`.toLowerCase().includes(busca))) return false;
     return true;
   });
+
+  renderStats(filtrados, filtroAtivo);
 
   if(filtrados.length === 0){
     tbody.innerHTML = `<tr><td colspan="8"><div class="empty">

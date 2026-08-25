@@ -18,6 +18,29 @@ tudo corre no browser e os dados ficam em `localStorage` do dispositivo.
   computador ou noutro browser, começas com os dados vazios (é local a
   cada instalação de browser).
 
+## Dashboard dinâmico
+
+Os 5 cartões no topo (Total, Confirmados, Não atendeu, Por confirmar, Sem
+nome) refletem **sempre o conjunto atualmente filtrado**, não a lista
+completa. Isto aplica-se aos três filtros existentes e às suas combinações:
+
+- Busca por texto (Ordem / Nome / Técnico)
+- Data
+- Status (incluindo "— Por confirmar —")
+
+Exemplo: se filtrares pela data `01/09/2026`, os cartões mostram quantas
+Ordens **desse dia** estão confirmadas, quantas não atenderam, etc. — não
+o total geral do dia todo.
+
+Quando há um filtro ativo, o cartão "Total" passa a chamar-se
+"Total filtrado" e mostra `filtrado / geral` (ex.: `34 / 703`) para dar
+contexto de quanto do universo total aquele filtro representa. Sem filtro
+nenhum ativo, volta ao comportamento normal (`703`, rótulo "Total").
+
+A implementação está em `renderStats(lista, filtroAtivo)` — chamada a
+partir de `renderizar()` depois de calcular `filtrados`, para que os
+cartões e a tabela usem sempre exatamente o mesmo conjunto de dados.
+
 ## Fluxo de trabalho
 
 1. **Importar** — CSV ou Excel exportado da plataforma (ou uma planilha
