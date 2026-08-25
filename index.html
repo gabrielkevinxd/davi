@@ -384,55 +384,140 @@ function formatarDataHoraExcel(d){
   return s;
 }
 
+/* ---------- reconhecimento flexível de colunas ----------
+   Aceita 3 formatos: export bruto da plataforma, export da própria app
+   (CSV/XLSX), e planilhas "mestre" antigas com nomes de coluna diferentes. */
+const ALIASES = {
+  ordem:        ['nº ot','n ot','ot','ordem'],
+  inicio:       ['inicio agendamento','início agendamento'],
+  fim:          ['fim agendamento'],
+  data:         ['data'],
+  horario:      ['horario','horário'],
+  status:       ['status'],
+  nome:         ['nome'],
+  tecnico:      ['tecnico','técnico'],
+  contacto:     ['contacto','contato'],
+  obsOrigem:    ['observacoes','observações','obs_origem','observacao origem','observação origem','observacoes origem','observações origem'],
+  obsValidacao: ['obs_validacao','observacao (validacao)','observação (validação)','observacoes (validacao)'],
+  estado:       ['estado'],
+  morada:       ['morada'],
+  cidade:       ['cidade'],
+  tipo:         ['tipo']
+};
+
+function normalizarTexto(s){
+  return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
+}
+
+function resolverColunas(headers){
+  const normalizados = headers.map(normalizarTexto);
+  const idx = {};
+  for(const campo in ALIASES){
+    idx[campo] = -1;
+    for(const alias of ALIASES[campo]){
+      const pos = normalizados.indexOf(alias);
+      if(pos !== -1){ idx[campo] = pos; break; }
+    }
+  }
+  return idx;
+}
+
+const STATUS_CANONICOS = {
+  'confirmado': 'Confirmado',
+  'nao atendeu': 'Não atendeu',
+  'reagendar': 'Reagendar',
+  'cancelado': 'Cancelado'
+};
+function normalizarStatus(v){
+  const n = normalizarTexto(v);
+  return STATUS_CANONICOS[n] || '';
+}
+
+function tituloCaso(s){
+  return String(s||'').trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+}
+
 async function processarLinhas(rows){
   if(rows.length < 2){ showToast('Ficheiro vazio ou inválido.', 'error'); return; }
 
   const headers = rows[0].map(h => String(h||'').trim());
-  const idx = (name) => headers.indexOf(name);
+  const col = resolverColunas(headers);
 
-  const iOrdem = idx('Nº OT'), iInicio = idx('Início Agendamento'), iFim = idx('Fim Agendamento'),
-        iTecnico = idx('Técnico'), iContacto = idx('Contacto'), iObs = idx('Observações'),
-        iEstado = idx('Estado'), iMorada = idx('Morada'), iCidade = idx('Cidade'), iTipo = idx('Tipo');
-
-  if(iOrdem === -1){ showToast('Coluna "Nº OT" não encontrada no ficheiro.', 'error'); return; }
+  if(col.ordem === -1){
+    showToast('Não encontrei uma coluna de Ordem (Nº OT / ORDEM) no ficheiro.', 'error');
+    return;
+  }
 
   const existentes = {};
   registos.forEach(r => existentes[r.ordem] = r);
 
+  const val = (r, campo) => col[campo] === -1 ? '' : String(r[col[campo]] ?? '').trim();
+
   const novos = [];
   const vistos = new Set();
+  let statusIgnorados = 0, semData = 0;
+
   for(let i=1;i<rows.length;i++){
     const r = rows[i];
-    if(!r || !r[iOrdem]) continue;
-    const ordem = String(r[iOrdem]).trim();
-    if(!ordem || vistos.has(ordem)) continue;
+    if(!r || !val(r,'ordem')) continue;
+    const ordem = val(r,'ordem');
+    if(vistos.has(ordem)) continue;
     vistos.add(ordem);
 
-    const inicioRaw = String(r[iInicio] || '');
-    const fimRaw = String(r[iFim] || '');
     const existente = existentes[ordem];
 
+    let data, horario;
+    if(col.inicio !== -1){
+      const inicioRaw = val(r,'inicio'), fimRaw = val(r,'fim');
+      data = formatarData(inicioRaw);
+      horario = formatarHora(inicioRaw) + (fimRaw ? ' às ' + formatarHora(fimRaw) : '');
+    } else {
+      data = val(r,'data') || 'SEM DATA';
+      horario = val(r,'horario');
+    }
+    if(data === 'SEM DATA') semData++;
+
+    let status = existente ? existente.status : '';
+    if(!status && col.status !== -1){
+      const statusArquivo = normalizarStatus(val(r,'status'));
+      const bruto = val(r,'status');
+      if(statusArquivo) status = statusArquivo;
+      else if(bruto) statusIgnorados++;
+    }
+
+    const obsOrigem = val(r,'obsOrigem');
+    let nome = existente && existente.nome ? existente.nome : '';
+    if(!nome && col.nome !== -1 && val(r,'nome')) nome = tituloCaso(val(r,'nome'));
+    if(!nome) nome = detectarNome(obsOrigem);
+
+    let obsValidacao = existente ? existente.obsValidacao : '';
+    if(!obsValidacao && col.obsValidacao !== -1) obsValidacao = val(r,'obsValidacao');
+
     novos.push({
-      ordem,
-      status: existente ? existente.status : '',
-      data: formatarData(inicioRaw),
-      horario: formatarHora(inicioRaw) + (fimRaw ? ' às ' + formatarHora(fimRaw) : ''),
-      nome: existente && existente.nome ? existente.nome : detectarNome(String(r[iObs] || '')),
-      contacto: String(r[iContacto] || ''),
-      obsOrigem: String(r[iObs] || ''),
-      obsValidacao: existente ? existente.obsValidacao : '',
-      estado: String(r[iEstado] || ''),
-      tecnico: String(r[iTecnico] || ''),
-      morada: String(r[iMorada] || ''),
-      cidade: String(r[iCidade] || ''),
-      tipo: String(r[iTipo] || '')
+      ordem, status, data, horario, nome,
+      contacto: val(r,'contacto'),
+      obsOrigem,
+      obsValidacao,
+      estado: val(r,'estado'),
+      tecnico: val(r,'tecnico'),
+      morada: val(r,'morada'),
+      cidade: val(r,'cidade'),
+      tipo: val(r,'tipo')
     });
   }
 
+  const preservados = novos.filter(r => existentes[r.ordem] && existentes[r.ordem].status).length;
   registos = novos;
   salvar();
   renderizar();
-  showToast(`Importadas ${registos.length} Ordens de Trabalho.`);
+
+  let msg = `Importadas ${registos.length} Ordens de Trabalho.`;
+  const detalhes = [];
+  if(preservados) detalhes.push(`${preservados} confirmações anteriores mantidas`);
+  if(statusIgnorados) detalhes.push(`${statusIgnorados} status não reconhecidos`);
+  if(semData) detalhes.push(`${semData} sem data`);
+  if(detalhes.length) msg += ' (' + detalhes.join(', ') + ')';
+  showToast(msg);
 }
 
 async function processarCSVText(text){
