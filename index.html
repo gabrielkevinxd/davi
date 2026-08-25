@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Central de Confirmações</title>
+<meta name="description" content="Importa agendamentos, confirma por telefone, exporta atualizado. Dados guardados apenas neste dispositivo.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js" defer></script>
+<style>
+  :root{
+    --bg:#f4f5f2; --bg-soft:#eceee9; --surface:#ffffff; --surface-2:#fbfbf9;
+    --border:#e2e4dd; --border-strong:#cfd2c8;
+    --ink:#171a16; --ink-soft:#565b52; --ink-faint:#8a8f83;
+    --accent:#1f6b52; --accent-dim:#eaf3ee; --accent-strong:#154d3b;
+    --warn:#b6742a; --warn-dim:#fbf1e3;
+    --danger:#b8452f; --danger-dim:#fbeae5;
+    --ok:#1f6b52; --ok-dim:#e7f4ee;
+    --shadow-sm: 0 1px 2px rgba(23,26,22,.05), 0 1px 1px rgba(23,26,22,.04);
+    --shadow-md: 0 8px 24px -8px rgba(23,26,22,.14), 0 2px 6px rgba(23,26,22,.06);
+    --radius: 14px;
+    --radius-sm: 9px;
+    --ease: cubic-bezier(.22,1,.36,1);
+  }
+  [data-theme="dark"]{
+    --bg:#14160f; --bg-soft:#191c14; --surface:#1c1f18; --surface-2:#20241b;
+    --border:#2c3025; --border-strong:#3a4032;
+    --ink:#f2f3ee; --ink-soft:#b6bbac; --ink-faint:#7c8272;
+    --accent:#4fb98e; --accent-dim:#1c2f26; --accent-strong:#6fd0a6;
+    --warn:#e0a355; --warn-dim:#2e2617;
+    --danger:#e17a5f; --danger-dim:#331f1a;
+    --ok:#4fb98e; --ok-dim:#1c2f26;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+    --shadow-md: 0 12px 32px -10px rgba(0,0,0,.5);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#14160f; --bg-soft:#191c14; --surface:#1c1f18; --surface-2:#20241b;
+      --border:#2c3025; --border-strong:#3a4032;
+      --ink:#f2f3ee; --ink-soft:#b6bbac; --ink-faint:#7c8272;
+      --accent:#4fb98e; --accent-dim:#1c2f26; --accent-strong:#6fd0a6;
+      --warn:#e0a355; --warn-dim:#2e2617;
+      --danger:#e17a5f; --danger-dim:#331f1a;
+      --ok:#4fb98e; --ok-dim:#1c2f26;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+      --shadow-md: 0 12px 32px -10px rgba(0,0,0,.5);
+    }
+  }
+
+  *{box-sizing:border-box;}
+  html{color-scheme:light dark;}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:'Inter',system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,.brand{font-family:'Sora',system-ui,sans-serif;}
+
+  @keyframes fadeUp{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+  @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+  @keyframes popIn{from{opacity:0;transform:scale(.94);}to{opacity:1;transform:scale(1);}}
+  @keyframes shimmer{0%{background-position:-200% 0;}100%{background-position:200% 0;}}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.001ms !important; transition-duration:.001ms !important;}
+  }
+
+  .wrap{max-width:1180px;margin:0 auto;padding:22px 20px 80px;}
+
+  header.top{
+    display:flex;justify-content:space-between;align-items:flex-start;gap:16px;
+    padding-bottom:20px;margin-bottom:22px;border-bottom:1px solid var(--border);
+    animation:fadeUp .5s var(--ease);
+  }
+  .brand-row{display:flex;align-items:center;gap:10px;}
+  .brand-icon{
+    width:34px;height:34px;border-radius:10px;background:var(--accent);
+    display:flex;align-items:center;justify-content:center;color:#fff;
+    box-shadow:var(--shadow-sm);
+  }
+  .brand-icon svg{width:18px;height:18px;}
+  h1{font-size:19px;margin:0;font-weight:700;letter-spacing:-.01em;}
+  .sub{font-size:13px;color:var(--ink-soft);margin-top:5px;max-width:520px;line-height:1.5;}
+  .privacy-pill{
+    display:inline-flex;align-items:center;gap:6px;margin-top:10px;
+    font-size:11.5px;color:var(--accent);background:var(--accent-dim);
+    padding:5px 10px 5px 8px;border-radius:100px;font-weight:600;
+  }
+  .privacy-pill svg{width:13px;height:13px;}
+
+  .theme-toggle{
+    width:36px;height:36px;border-radius:10px;border:1px solid var(--border);
+    background:var(--surface);color:var(--ink-soft);display:flex;align-items:center;justify-content:center;
+    cursor:pointer;transition:all .18s var(--ease);flex-shrink:0;
+  }
+  .theme-toggle:hover{border-color:var(--border-strong);color:var(--ink);transform:translateY(-1px);}
+  .theme-toggle svg{width:16px;height:16px;}
+
+  .toolbar{
+    display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:18px;
+    animation:fadeUp .5s var(--ease) .05s backwards;
+  }
+  .btn{
+    display:inline-flex;align-items:center;gap:7px;
+    font-family:inherit;font-size:13px;font-weight:600;border-radius:10px;padding:10px 16px;
+    cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:#fff;
+    transition:transform .15s var(--ease), box-shadow .15s var(--ease), background .15s var(--ease);
+    box-shadow:var(--shadow-sm);
+  }
+  .btn svg{width:15px;height:15px;flex-shrink:0;}
+  .btn:hover{transform:translateY(-1.5px);box-shadow:var(--shadow-md);background:var(--accent-strong);border-color:var(--accent-strong);}
+  .btn:active{transform:translateY(0);}
+  .btn.secondary{background:var(--surface);color:var(--ink);border-color:var(--border);}
+  .btn.secondary:hover{background:var(--surface-2);border-color:var(--border-strong);}
+  .btn.danger{background:var(--surface);color:var(--danger);border-color:var(--border);}
+  .btn.danger:hover{background:var(--danger-dim);border-color:var(--danger);}
+  input[type=file]{display:none;}
+
+  .stats{
+    display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px;
+    animation:fadeUp .5s var(--ease) .1s backwards;
+  }
+  .stat{
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);
+    padding:14px 12px;text-align:center;transition:transform .18s var(--ease), box-shadow .18s var(--ease), border-color .18s var(--ease);
+  }
+  .stat:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);border-color:var(--border-strong);}
+  .stat .n{font-family:'Sora',sans-serif;font-size:22px;font-weight:700;color:var(--ink);line-height:1;transition:color .2s;}
+  .stat .l{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint);margin-top:6px;font-weight:600;}
+  .stat.accent .n{color:var(--accent);}
+  .stat.warn .n{color:var(--warn);}
+
+  .panel{
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+    padding:16px;box-shadow:var(--shadow-sm);
+    animation:fadeUp .5s var(--ease) .15s backwards;
+  }
+
+  .filters{display:flex;gap:9px;margin-bottom:14px;flex-wrap:wrap;}
+  .field{position:relative;flex:1;min-width:180px;}
+  .field svg{
+    position:absolute;left:11px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--ink-faint);pointer-events:none;
+  }
+  .field input{padding-left:34px;}
+  select, input[type=text]{
+    font-family:inherit;font-size:13px;border:1px solid var(--border);border-radius:9px;
+    padding:9px 10px;background:var(--surface-2);color:var(--ink);width:100%;
+    transition:border-color .15s, background .15s;
+  }
+  select{min-width:150px;flex:none;}
+  select:focus, input[type=text]:focus{outline:none;border-color:var(--accent);background:var(--surface);}
+
+  .tablewrap{overflow-x:auto;border-radius:10px;border:1px solid var(--border);}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--surface);min-width:920px;}
+  thead th{
+    background:var(--surface-2);color:var(--ink-soft);text-align:left;padding:10px 8px;
+    font-size:10px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;
+    border-bottom:1px solid var(--border);position:sticky;top:0;
+  }
+  td{padding:8px;border-bottom:1px solid var(--border);vertical-align:middle;}
+  tbody tr{animation:fadeIn .3s var(--ease);transition:background .15s;}
+  tbody tr:hover{background:var(--surface-2);}
+  tbody tr:last-child td{border-bottom:none;}
+  tr.validado{background:var(--ok-dim);}
+  tr.validado:hover{background:var(--ok-dim);filter:brightness(0.97);}
+  tr.sem-nome{background:var(--warn-dim);}
+  tr.sem-data{background:var(--danger-dim);}
+
+  input.cell, select.cell{
+    width:100%;border:1px solid transparent;background:transparent;padding:5px 6px;
+    font-size:12.5px;border-radius:7px;color:var(--ink);font-family:inherit;
+    transition:border-color .15s, background .15s;
+  }
+  input.cell:focus, select.cell:focus{border-color:var(--accent);background:var(--surface);outline:none;}
+  input.cell:hover, select.cell:hover{background:rgba(0,0,0,.03);}
+
+  .badge{
+    display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;
+    padding:3px 8px;border-radius:100px;white-space:nowrap;
+  }
+  .badge.ok{background:var(--ok-dim);color:var(--ok);}
+  .badge.warn{background:var(--warn-dim);color:var(--warn);}
+  .badge.danger{background:var(--danger-dim);color:var(--danger);}
+  .badge.neutral{background:var(--bg-soft);color:var(--ink-faint);}
+
+  .empty{
+    text-align:center;padding:60px 20px;color:var(--ink-faint);
+    display:flex;flex-direction:column;align-items:center;gap:10px;
+  }
+  .empty svg{width:34px;height:34px;opacity:.5;}
+  .empty .t{font-size:13.5px;font-weight:600;color:var(--ink-soft);}
+  .empty .d{font-size:12px;}
+
+  .toast{
+    position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(8px);
+    background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:100px;font-size:12.5px;font-weight:600;
+    opacity:0;pointer-events:none;transition:opacity .25s var(--ease), transform .25s var(--ease);z-index:100;
+    display:flex;align-items:center;gap:8px;box-shadow:var(--shadow-md);
+  }
+  .toast svg{width:14px;height:14px;}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  .drop-active{outline:2px dashed var(--accent);outline-offset:4px;border-radius:14px;}
+
+  @media (max-width:760px){
+    .stats{grid-template-columns:repeat(2,1fr);}
+    .wrap{padding:16px 14px 70px;}
+    header.top{flex-wrap:wrap;}
+    table{min-width:760px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="dropzone">
+  <header class="top">
+    <div>
+      <div class="brand-row">
+        <div class="brand-icon"><svg data-lucide="calendar-check-2"></svg></div>
+        <h1>Central de Confirmações</h1>
+      </div>
+      <div class="sub">Importa o export da plataforma, confirma por telefone, exporta atualizado.</div>
+      <div class="privacy-pill"><svg data-lucide="shield-check"></svg> Dados guardados apenas neste dispositivo — nada é enviado a um servidor</div>
+    </div>
+    <button class="theme-toggle" id="themeToggle" title="Alternar tema" aria-label="Alternar tema">
+      <svg data-lucide="moon"></svg>
+    </button>
+  </header>
+
+  <div class="toolbar">
+    <label class="btn" for="fileInput"><svg data-lucide="upload"></svg> Importar CSV / Excel</label>
+    <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
+    <button class="btn secondary" id="exportXlsxBtn"><svg data-lucide="file-spreadsheet"></svg> Exportar Excel</button>
+    <button class="btn secondary" id="exportBtn"><svg data-lucide="download"></svg> Exportar CSV</button>
+    <button class="btn danger" id="clearBtn"><svg data-lucide="trash-2"></svg> Limpar tudo</button>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="panel">
+    <div class="filters">
+      <div class="field">
+        <svg data-lucide="search"></svg>
+        <input type="text" id="searchInput" placeholder="Buscar por OT, nome ou técnico...">
+      </div>
+      <select id="dataFilter"><option value="">Todas as datas</option></select>
+      <select id="statusFilter">
+        <option value="">Todos os status</option>
+        <option value="Confirmado">Confirmado</option>
+        <option value="Não atendeu">Não atendeu</option>
+        <option value="Reagendar">Reagendar</option>
+        <option value="Cancelado">Cancelado</option>
+        <option value="__pendente__">— Por confirmar —</option>
+      </select>
+    </div>
+
+    <div class="tablewrap">
+      <table id="tabela">
+        <thead>
+          <tr>
+            <th style="width:100px;">Ordem</th>
+            <th style="width:130px;">Status</th>
+            <th style="width:80px;">Data</th>
+            <th style="width:110px;">Horário</th>
+            <th style="width:150px;">Nome</th>
+            <th style="width:100px;">Contacto</th>
+            <th>Observação origem</th>
+            <th>Observação (validação)</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let registos = [];
+const STORAGE_KEY = 'davi-central-confirmacoes-v2';
+const THEME_KEY = 'davi-central-theme';
+
+function icons(){ if(window.lucide) lucide.createIcons(); }
+
+/* ---------- theme ---------- */
+function applyTheme(t){
+  if(t === 'system'){ document.documentElement.removeAttribute('data-theme'); }
+  else { document.documentElement.setAttribute('data-theme', t); }
+  const icon = document.querySelector('#themeToggle svg');
+  const isDark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  if(icon) icon.setAttribute('data-lucide', isDark ? 'sun' : 'moon');
+  icons();
+}
+function initTheme(){
+  const saved = localStorage.getItem(THEME_KEY) || 'system';
+  applyTheme(saved);
+}
+document.getElementById('themeToggle').addEventListener('click', ()=>{
+  const current = localStorage.getItem(THEME_KEY) || 'system';
+  const isDark = current === 'dark' || (current === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const next = isDark ? 'light' : 'dark';
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+});
+
+/* ---------- toast ---------- */
+function showToast(msg, type){
+  const t = document.getElementById('toast');
+  const ic = type === 'error' ? 'circle-alert' : 'check-circle-2';
+  t.innerHTML = `<svg data-lucide="${ic}"></svg><span>${msg}</span>`;
+  icons();
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>t.classList.remove('show'), 2400);
+}
+
+/* ---------- CSV ---------- */
+function parseCSV(text){
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for(let i=0;i<text.length;i++){
+    const c = text[i], next = text[i+1];
+    if(inQuotes){
+      if(c === '"' && next === '"'){ field += '"'; i++; }
+      else if(c === '"'){ inQuotes = false; }
+      else { field += c; }
+    } else {
+      if(c === '"'){ inQuotes = true; }
+      else if(c === ','){ row.push(field); field=''; }
+      else if(c === '\r'){ /* skip */ }
+      else if(c === '\n'){ row.push(field); rows.push(row); row=[]; field=''; }
+      else { field += c; }
+    }
+  }
+  if(field.length || row.length){ row.push(field); rows.push(row); }
+  return rows.filter(r => r.length > 1 || r[0] !== '');
+}
+
+function detectarNome(obs){
+  if(!obs) return '';
+  const primeiro = obs.split('|')[0].trim();
+  const apenasLetras = primeiro.replace(/[^A-Za-zÀ-ÿ ]/g,'');
+  if(apenasLetras.length < 4) return '';
+  if(primeiro !== primeiro.toUpperCase()) return '';
+  const bloqueio = ['DIAGN','LIGAR','NOTAS','INTERVEN','AGENDAMENTO','CLIENTE NÃO','CLIENTE NAO','FALTA DE','NÃO FORAM','NAO FORAM','IVR','REALIZADA'];
+  if(bloqueio.some(p => primeiro.toUpperCase().includes(p))) return '';
+  const digitos = (primeiro.match(/\d/g) || []).length;
+  if(digitos > 2) return '';
+  return primeiro.split(' ').map(w => w.charAt(0) + w.slice(1).toLowerCase()).join(' ');
+}
+
+function formatarData(dataStr){
+  if(!dataStr) return '';
+  const m = dataStr.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if(!m) return dataStr;
+  if(m[3] === '2900' || m[3] === '2950') return 'SEM DATA';
+  return `${m[1]}/${m[2]}/${m[3]}`;
+}
+
+function formatarHora(dataStr){
+  const m = dataStr && dataStr.match(/(\d{2}:\d{2})/);
+  return m ? m[1] : '';
+}
+
+function celulaTexto(v){
+  if(v === null || v === undefined) return '';
+  if(v instanceof Date) return formatarDataHoraExcel(v);
+  if(typeof v === 'object'){
+    if(v.text) return v.text;
+    if(v.richText) return v.richText.map(p=>p.text).join('');
+    if(v.result !== undefined) return celulaTexto(v.result);
+  }
+  return String(v);
+}
+function formatarDataHoraExcel(d){
+  const pad = n => String(n).padStart(2,'0');
+  const temHora = d.getUTCHours() || d.getUTCMinutes();
+  const dd = pad(d.getUTCDate()), mm = pad(d.getUTCMonth()+1), yyyy = d.getUTCFullYear();
+  let s = `${dd}/${mm}/${yyyy}`;
+  if(temHora) s += ` ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+  return s;
+}
+
+async function processarLinhas(rows){
+  if(rows.length < 2){ showToast('Ficheiro vazio ou inválido.', 'error'); return; }
+
+  const headers = rows[0].map(h => String(h||'').trim());
+  const idx = (name) => headers.indexOf(name);
+
+  const iOrdem = idx('Nº OT'), iInicio = idx('Início Agendamento'), iFim = idx('Fim Agendamento'),
+        iTecnico = idx('Técnico'), iContacto = idx('Contacto'), iObs = idx('Observações'),
+        iEstado = idx('Estado'), iMorada = idx('Morada'), iCidade = idx('Cidade'), iTipo = idx('Tipo');
+
+  if(iOrdem === -1){ showToast('Coluna "Nº OT" não encontrada no ficheiro.', 'error'); return; }
+
+  const existentes = {};
+  registos.forEach(r => existentes[r.ordem] = r);
+
+  const novos = [];
+  const vistos = new Set();
+  for(let i=1;i<rows.length;i++){
+    const r = rows[i];
+    if(!r || !r[iOrdem]) continue;
+    const ordem = String(r[iOrdem]).trim();
+    if(!ordem || vistos.has(ordem)) continue;
+    vistos.add(ordem);
+
+    const inicioRaw = String(r[iInicio] || '');
+    const fimRaw = String(r[iFim] || '');
+    const existente = existentes[ordem];
+
+    novos.push({
+      ordem,
+      status: existente ? existente.status : '',
+      data: formatarData(inicioRaw),
+      horario: formatarHora(inicioRaw) + (fimRaw ? ' às ' + formatarHora(fimRaw) : ''),
+      nome: existente && existente.nome ? existente.nome : detectarNome(String(r[iObs] || '')),
+      contacto: String(r[iContacto] || ''),
+      obsOrigem: String(r[iObs] || ''),
+      obsValidacao: existente ? existente.obsValidacao : '',
+      estado: String(r[iEstado] || ''),
+      tecnico: String(r[iTecnico] || ''),
+      morada: String(r[iMorada] || ''),
+      cidade: String(r[iCidade] || ''),
+      tipo: String(r[iTipo] || '')
+    });
+  }
+
+  registos = novos;
+  salvar();
+  renderizar();
+  showToast(`Importadas ${registos.length} Ordens de Trabalho.`);
+}
+
+async function processarCSVText(text){
+  await processarLinhas(parseCSV(text));
+}
+
+async function processarXlsxBuffer(buffer){
+  try{
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buffer);
+    const ws = wb.worksheets[0];
+    if(!ws){ showToast('Ficheiro Excel sem folhas.', 'error'); return; }
+    const rows = [];
+    ws.eachRow({ includeEmpty:true }, (row, rowNumber)=>{
+      const vals = row.values.slice(1).map(celulaTexto);
+      rows[rowNumber-1] = vals;
+    });
+    await processarLinhas(rows);
+  }catch(e){
+    console.error(e);
+    showToast('Não foi possível ler o ficheiro Excel.', 'error');
+  }
+}
+
+async function processarFicheiro(file){
+  const nome = file.name.toLowerCase();
+  if(nome.endsWith('.xlsx') || nome.endsWith('.xls')){
+    const buffer = await file.arrayBuffer();
+    await processarXlsxBuffer(buffer);
+  } else if(nome.endsWith('.csv')){
+    const text = await file.text();
+    await processarCSVText(text);
+  } else {
+    showToast('Formato não suportado. Usa .csv ou .xlsx.', 'error');
+  }
+}
+
+document.getElementById('fileInput').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  await processarFicheiro(file);
+  e.target.value = '';
+});
+
+/* drag & drop */
+const dz = document.getElementById('dropzone');
+['dragenter','dragover'].forEach(ev => dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.add('drop-active'); }));
+['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e=>{ e.preventDefault(); dz.classList.remove('drop-active'); }));
+dz.addEventListener('drop', async e=>{
+  const file = e.dataTransfer.files[0];
+  if(file) await processarFicheiro(file);
+});
+
+/* ---------- storage (100% local, nunca sai do browser) ---------- */
+function salvar(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(registos));
+  }catch(e){
+    console.error('Erro ao guardar', e);
+    showToast('Erro ao guardar localmente.', 'error');
+  }
+}
+function carregar(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw) registos = JSON.parse(raw);
+  }catch(e){
+    registos = [];
+  }
+  renderizar();
+}
+
+/* ---------- render ---------- */
+function popularFiltroDatas(){
+  const sel = document.getElementById('dataFilter');
+  const atual = sel.value;
+  const datas = [...new Set(registos.map(r => r.data))].sort();
+  sel.innerHTML = '<option value="">Todas as datas</option>' +
+    datas.map(d => `<option value="${d}">${d}</option>`).join('');
+  sel.value = atual;
+}
+
+function renderStats(){
+  const total = registos.length;
+  const confirmados = registos.filter(r => r.status === 'Confirmado').length;
+  const naoAtendeu = registos.filter(r => r.status === 'Não atendeu').length;
+  const semNome = registos.filter(r => !r.nome).length;
+  const porConfirmar = registos.filter(r => !r.status).length;
+
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><div class="n">${total}</div><div class="l">Total</div></div>
+    <div class="stat accent"><div class="n">${confirmados}</div><div class="l">Confirmados</div></div>
+    <div class="stat warn"><div class="n">${naoAtendeu}</div><div class="l">Não atendeu</div></div>
+    <div class="stat"><div class="n">${porConfirmar}</div><div class="l">Por confirmar</div></div>
+    <div class="stat"><div class="n">${semNome}</div><div class="l">Sem nome</div></div>
+  `;
+}
+
+function statusBadge(status){
+  const map = {
+    'Confirmado':'ok', 'Não atendeu':'warn', 'Reagendar':'warn', 'Cancelado':'danger'
+  };
+  return status ? `<span class="badge ${map[status]||'neutral'}">${status}</span>` : `<span class="badge neutral">Pendente</span>`;
+}
+
+function renderizar(){
+  renderStats();
+  popularFiltroDatas();
+
+  const busca = document.getElementById('searchInput').value.toLowerCase();
+  const filtroData = document.getElementById('dataFilter').value;
+  const filtroStatus = document.getElementById('statusFilter').value;
+
+  const tbody = document.getElementById('tbody');
+  const filtrados = registos.filter(r => {
+    if(filtroData && r.data !== filtroData) return false;
+    if(filtroStatus === '__pendente__' && r.status) return false;
+    if(filtroStatus && filtroStatus !== '__pendente__' && r.status !== filtroStatus) return false;
+    if(busca && !(`${r.ordem} ${r.nome} ${r.tecnico}`.toLowerCase().includes(busca))) return false;
+    return true;
+  });
+
+  if(filtrados.length === 0){
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty">
+      <svg data-lucide="${registos.length === 0 ? 'inbox' : 'search-x'}"></svg>
+      <div class="t">${registos.length === 0 ? 'Ainda sem agendamentos' : 'Nenhum registo encontrado'}</div>
+      <div class="d">${registos.length === 0 ? 'Importa um CSV ou Excel para começares.' : 'Ajusta a busca ou os filtros.'}</div>
+    </div></td></tr>`;
+    icons();
+    return;
+  }
+
+  tbody.innerHTML = filtrados.map(r => {
+    const cls = r.status ? 'validado' : (r.data === 'SEM DATA' ? 'sem-data' : (!r.nome ? 'sem-nome' : ''));
+    return `
+    <tr class="${cls}" data-ordem="${r.ordem}">
+      <td>${r.ordem}</td>
+      <td>
+        <select class="cell" onchange="atualizarCampo('${r.ordem}','status',this.value)">
+          <option value="" ${!r.status?'selected':''}>— Pendente</option>
+          <option value="Confirmado" ${r.status==='Confirmado'?'selected':''}>Confirmado</option>
+          <option value="Não atendeu" ${r.status==='Não atendeu'?'selected':''}>Não atendeu</option>
+          <option value="Reagendar" ${r.status==='Reagendar'?'selected':''}>Reagendar</option>
+          <option value="Cancelado" ${r.status==='Cancelado'?'selected':''}>Cancelado</option>
+        </select>
+      </td>
+      <td>${r.data}</td>
+      <td>${r.horario}</td>
+      <td><input class="cell" type="text" value="${(r.nome||'').replace(/"/g,'&quot;')}" onchange="atualizarCampo('${r.ordem}','nome',this.value)"></td>
+      <td>${r.contacto || ''}</td>
+      <td style="max-width:220px;font-size:11px;color:var(--ink-faint);">${(r.obsOrigem||'').slice(0,120)}</td>
+      <td><input class="cell" type="text" value="${(r.obsValidacao||'').replace(/"/g,'&quot;')}" placeholder="Nota da chamada..." onchange="atualizarCampo('${r.ordem}','obsValidacao',this.value)"></td>
+    </tr>`;
+  }).join('');
+}
+
+window.atualizarCampo = function(ordem, campo, valor){
+  const r = registos.find(x => x.ordem === ordem);
+  if(r){
+    r[campo] = valor;
+    salvar();
+    renderizar();
+  }
+}
+
+document.getElementById('searchInput').addEventListener('input', renderizar);
+document.getElementById('dataFilter').addEventListener('change', renderizar);
+document.getElementById('statusFilter').addEventListener('change', renderizar);
+
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  if(registos.length === 0){ showToast('Nada para exportar ainda.', 'error'); return; }
+  const headers = ['ORDEM','STATUS','DATA','HORARIO','NOME','CONTACTO','OBS_ORIGEM','OBS_VALIDACAO','ESTADO','TECNICO','MORADA','CIDADE','TIPO'];
+  const linhas = registos.map(r => [r.ordem,r.status,r.data,r.horario,r.nome,r.contacto,r.obsOrigem,r.obsValidacao,r.estado,r.tecnico,r.morada,r.cidade,r.tipo]
+    .map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(','));
+  const csv = headers.join(',') + '\n' + linhas.join('\n');
+  const blob = new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `confirmacoes_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('CSV exportado.');
+});
+
+document.getElementById('exportXlsxBtn').addEventListener('click', async ()=>{
+  if(registos.length === 0){ showToast('Nada para exportar ainda.', 'error'); return; }
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Central de Confirmações';
+  wb.created = new Date();
+
+  const ws = wb.addWorksheet('Confirmações', {
+    views: [{ state: 'frozen', ySplit: 1 }]
+  });
+
+  ws.columns = [
+    { header: 'Ordem',              key: 'ordem',        width: 12 },
+    { header: 'Status',             key: 'status',       width: 16 },
+    { header: 'Data',               key: 'data',         width: 12 },
+    { header: 'Horário',            key: 'horario',      width: 16 },
+    { header: 'Nome',               key: 'nome',         width: 22 },
+    { header: 'Contacto',           key: 'contacto',     width: 14 },
+    { header: 'Observação origem',  key: 'obsOrigem',    width: 42 },
+    { header: 'Observação (validação)', key: 'obsValidacao', width: 32 },
+    { header: 'Estado',             key: 'estado',       width: 14 },
+    { header: 'Técnico',            key: 'tecnico',      width: 18 },
+    { header: 'Morada',             key: 'morada',       width: 26 },
+    { header: 'Cidade',             key: 'cidade',       width: 16 },
+    { header: 'Tipo',               key: 'tipo',         width: 16 }
+  ];
+
+  const headerRow = ws.getRow(1);
+  headerRow.height = 22;
+  headerRow.eachCell(cell=>{
+    cell.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:11 };
+    cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF1F6B52' } };
+    cell.alignment = { vertical:'middle' };
+  });
+
+  const fillByStatus = {
+    'Confirmado':  'FFE7F4EE',
+    'Não atendeu': 'FFFBF1E3',
+    'Reagendar':   'FFFBF1E3',
+    'Cancelado':   'FFFBEAE5'
+  };
+  const fontByStatus = {
+    'Confirmado':  'FF1F6B52',
+    'Não atendeu': 'FFB6742A',
+    'Reagendar':   'FFB6742A',
+    'Cancelado':   'FFB8452F'
+  };
+
+  registos.forEach(r=>{
+    const row = ws.addRow({
+      ordem: r.ordem, status: r.status || 'Pendente', data: r.data, horario: r.horario,
+      nome: r.nome, contacto: r.contacto, obsOrigem: r.obsOrigem, obsValidacao: r.obsValidacao,
+      estado: r.estado, tecnico: r.tecnico, morada: r.morada, cidade: r.cidade, tipo: r.tipo
+    });
+    row.eachCell(cell=>{ cell.alignment = { vertical:'middle', wrapText:false }; });
+    const statusCell = row.getCell('status');
+    if(fillByStatus[r.status]){
+      statusCell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb: fillByStatus[r.status] } };
+      statusCell.font = { bold:true, color:{ argb: fontByStatus[r.status] } };
+    } else {
+      statusCell.font = { italic:true, color:{ argb:'FF8A8F83' } };
+    }
+    if(r.data === 'SEM DATA'){
+      row.getCell('data').font = { bold:true, color:{ argb:'FFB8452F' } };
+    }
+    if(!r.nome){
+      row.getCell('nome').font = { italic:true, color:{ argb:'FFB6742A' } };
+    }
+  });
+
+  ws.autoFilter = { from: 'A1', to: `M${registos.length+1}` };
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `confirmacoes_${new Date().toISOString().slice(0,10)}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Excel exportado.');
+});
+
+document.getElementById('clearBtn').addEventListener('click', ()=>{
+  if(!confirm('Isto apaga todos os registos guardados neste dispositivo. Continuar?')) return;
+  registos = [];
+  salvar();
+  renderizar();
+  showToast('Tudo limpo.');
+});
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  initTheme();
+  carregar();
+  icons();
+});
+</script>
+</body>
+</html>
