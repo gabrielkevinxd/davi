@@ -227,6 +227,15 @@ no aviso pós-importação, para nunca passarem despercebidos.
 - **Exportar** `.xlsx`: gerado com ExcelJS — cabeçalho a negrito com fundo
   verde, colunas com largura ajustada, primeira linha fixa (freeze),
   autofiltro, e células de Status coloridas por valor.
+- **Grade (bordas)**: só as células com conteúdo recebem borda fina —
+  uma célula sem valor (ex.: Nome ou Observação por preencher) fica em
+  branco, sem contorno nenhum, em vez do grid uniforme típico do Excel
+  que desenha borda em tudo, cheio ou vazio. Como o Excel trata `''`
+  (string vazia) como "tem valor" para efeitos de iteração de células, a
+  app verifica explicitamente cada campo do registo (`CAMPOS.forEach`)
+  em vez de confiar no `eachCell` automático do ExcelJS — validado nas
+  704 linhas reais do utilizador, zero células incoerentes (vazia com
+  borda, ou preenchida sem borda).
 
 ## Validação feita (dados reais, 2026-08-25)
 

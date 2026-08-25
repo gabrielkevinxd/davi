@@ -1002,12 +1002,20 @@ document.getElementById('exportXlsxBtn').addEventListener('click', async ()=>{
     { header: 'Tipo',               key: 'tipo',         width: 16 }
   ];
 
+  /* Grade fina só nas células com conteúdo — uma célula sem valor fica
+     mesmo em branco, sem contorno, em vez do grid completo típico do
+     Excel que marca tudo, cheio ou vazio. */
+  const bordaFina = { style:'thin', color:{ argb:'FFD3D8CF' } };
+  const comBorda = { top:bordaFina, left:bordaFina, bottom:bordaFina, right:bordaFina };
+  const CAMPOS = ['ordem','status','data','horario','nome','contacto','obsOrigem','obsValidacao','estado','tecnico','morada','cidade','tipo'];
+
   const headerRow = ws.getRow(1);
   headerRow.height = 22;
   headerRow.eachCell(cell=>{
     cell.font = { bold:true, color:{ argb:'FFFFFFFF' }, size:11 };
     cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF1F6B52' } };
     cell.alignment = { vertical:'middle' };
+    cell.border = comBorda;
   });
 
   const fillByStatus = {
@@ -1029,7 +1037,13 @@ document.getElementById('exportXlsxBtn').addEventListener('click', async ()=>{
       nome: r.nome, contacto: r.contacto, obsOrigem: r.obsOrigem, obsValidacao: r.obsValidacao,
       estado: r.estado, tecnico: r.tecnico, morada: r.morada, cidade: r.cidade, tipo: r.tipo
     });
-    row.eachCell(cell=>{ cell.alignment = { vertical:'middle', wrapText:false }; });
+    CAMPOS.forEach(key=>{
+      const cell = row.getCell(key);
+      cell.alignment = { vertical:'middle', wrapText:false };
+      if(cell.value !== null && cell.value !== undefined && cell.value !== ''){
+        cell.border = comBorda;
+      }
+    });
     const statusCell = row.getCell('status');
     if(fillByStatus[r.status]){
       statusCell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb: fillByStatus[r.status] } };
