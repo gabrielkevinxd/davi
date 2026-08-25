@@ -49,27 +49,69 @@ Contacto (telefone), Morada, Cidade, Observação de origem e Observação de
 validação (`bateBusca()`). Escreveres um número de telefone, um pedaço de
 morada, ou uma palavra de uma nota antiga também encontra o registo.
 
-## Gráfico "montanha" — tendência por dia
+## Gráfico de tendência — barras, Dia ou Mês
 
 Aparece automaticamente por cima da tabela, mas **só na vista geral**
 (campo de data em "Todas as datas") — esconde-se assim que filtras por um
-dia específico, porque o próprio eixo X do gráfico é feito de dias.
+dia específico, porque o próprio eixo X do gráfico é feito de datas.
 
-- **Área verde (montanha)** — nº de Ordens **Confirmadas** por dia (linha
-  sólida, com pontos).
-- **Linha cinza fina** — total de Ordens do dia (para comparação de escala).
-- **Linha tracejada horizontal** — média do período apresentado, para veres
-  se o dia está acima ou abaixo da tendência recente.
-- Mostra até aos últimos 14 dias com dados (`agruparPorDia().slice(-14)`).
-- Reage aos filtros de busca e status: se filtrares por status
-  `Cancelado`, o gráfico passa a mostrar a tendência de cancelamentos por
-  dia, não de confirmações. Só o filtro de Data é ignorado nesse cálculo
-  (propositadamente, é o eixo do gráfico).
-- Com menos de 2 dias distintos no conjunto filtrado, o gráfico
-  esconde-se (não há tendência para comparar com 1 ponto só).
+### Redesenho (barras em vez de área/linha sobreposta)
 
-Implementado em `agruparPorDia()` + `renderChart()`, com um `<svg>` gerado
-diretamente em JS (sem biblioteca externa de gráficos).
+A primeira versão usava uma área "montanha" (Confirmados) sobreposta a
+uma linha fina (Total), sem eixo numérico. Ficava ilegível quando os
+valores diários eram pequenos (1–3 OTs) — não dava para saber se um ponto
+valia 1 ou 30 só de olhar. Passou a ser um **gráfico de barras agrupadas**:
+
+- **Barra cinza** — total de OTs do dia/mês. **Barra verde** — quantas
+  dessas estão Confirmadas. Lado a lado, com o número escrito por cima de
+  cada uma (até 16 colunas; com mais, só fica o tooltip ao passar o rato).
+- **Eixo Y com grelha e valores** (0 / metade / máximo), para leres a
+  escala em vez de adivinhar pela altura relativa.
+- **Linha tracejada laranja** — média do período mostrado, para veres se
+  o dia/mês está acima ou abaixo da tendência recente.
+- Reage aos filtros de busca e status: filtrar por `Cancelado` faz o
+  gráfico passar a mostrar a tendência de cancelamentos, não de
+  confirmações. Só o filtro de Data é ignorado nesse cálculo
+  (propositadamente — é o próprio eixo do gráfico).
+- Com menos de 2 colunas no conjunto filtrado, o gráfico esconde-se (não
+  há tendência para comparar com 1 ponto só).
+- A área do gráfico tem scroll horizontal próprio quando há muitas
+  colunas, para as barras nunca ficarem espremidas a ponto de perderem a
+  legenda.
+
+### Toggle Dia / Mês
+
+Botão no canto superior do painel alterna entre `agruparPorDia()` e
+`agruparPorMes()`:
+
+- **Dia** — até 14 colunas, mas (ver correção abaixo) escolhidas por
+  proximidade a hoje, não pelas últimas cronologicamente.
+- **Mês** — agrupa **todos** os meses presentes no conjunto filtrado
+  (não há corte de 14), útil para ver o panorama quando os dados cobrem
+  várias semanas ou meses.
+
+### Correção: janela de dias "mais próxima de hoje", não "últimos cronologicamente"
+
+**Bug encontrado:** a versão anterior pegava nos últimos 14 *dias
+distintos* ordenados cronologicamente (`slice(-14)`). Numa OT reagendada
+para daqui a 2 meses (um caso isolado), esse dia distante entrava na
+janela e **empurrava para fora os dias com o volume real de trabalho**,
+próximos de hoje — resultando no gráfico "achatado" com só um pico
+isolado, sem nexo, que motivou este pedido de correção.
+
+Agora `agruparPorDia()` ordena os dias disponíveis por distância a
+**hoje** (`new Date()` do browser do utilizador) e escolhe os 14 mais
+próximos — só depois volta a ordená-los cronologicamente para desenhar o
+gráfico da esquerda para a direita. Isto garante que a janela mostrada é
+sempre relevante ao trabalho atual, e não é distorcida por reagendamentos
+isolados no futuro distante. Validado com um conjunto sintético: 20 dias
+com volume real (3–8 OTs/dia) à volta de hoje + 1 dia isolado 60 dias no
+futuro — o outlier fica corretamente de fora da vista "Dia" e só aparece
+agregado no seu mês, na vista "Mês".
+
+Implementado em `agruparPorDia()` / `agruparPorMes()` + `renderChart()`,
+com um `<svg>` gerado diretamente em JS (sem biblioteca externa de
+gráficos).
 
 ## Deteção de nome — Title Case além de MAIÚSCULAS
 
