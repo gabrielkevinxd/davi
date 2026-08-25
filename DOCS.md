@@ -20,11 +20,12 @@ tudo corre no browser e os dados ficam em `localStorage` do dispositivo.
 
 ## Dashboard dinâmico
 
-Os 5 cartões no topo (Total, Confirmados, Não atendeu, Por confirmar, Sem
-nome) refletem **sempre o conjunto atualmente filtrado**, não a lista
-completa. Isto aplica-se aos três filtros existentes e às suas combinações:
+Os 6 cartões no topo (Total, Confirmados, Não atendeu, Cancelados, Por
+confirmar, Sem nome) refletem **sempre o conjunto atualmente filtrado**,
+não a lista completa. Isto aplica-se aos três filtros existentes e às suas
+combinações:
 
-- Busca por texto (Ordem / Nome / Técnico)
+- Busca por texto (ver "Busca abrangente" abaixo)
 - Data
 - Status (incluindo "— Por confirmar —")
 
@@ -40,6 +41,59 @@ nenhum ativo, volta ao comportamento normal (`703`, rótulo "Total").
 A implementação está em `renderStats(lista, filtroAtivo)` — chamada a
 partir de `renderizar()` depois de calcular `filtrados`, para que os
 cartões e a tabela usem sempre exatamente o mesmo conjunto de dados.
+
+## Busca abrangente (inclui telefone)
+
+A busca já não olha só para Ordem/Nome/Técnico — agora cobre também
+Contacto (telefone), Morada, Cidade, Observação de origem e Observação de
+validação (`bateBusca()`). Escreveres um número de telefone, um pedaço de
+morada, ou uma palavra de uma nota antiga também encontra o registo.
+
+## Gráfico "montanha" — tendência por dia
+
+Aparece automaticamente por cima da tabela, mas **só na vista geral**
+(campo de data em "Todas as datas") — esconde-se assim que filtras por um
+dia específico, porque o próprio eixo X do gráfico é feito de dias.
+
+- **Área verde (montanha)** — nº de Ordens **Confirmadas** por dia (linha
+  sólida, com pontos).
+- **Linha cinza fina** — total de Ordens do dia (para comparação de escala).
+- **Linha tracejada horizontal** — média do período apresentado, para veres
+  se o dia está acima ou abaixo da tendência recente.
+- Mostra até aos últimos 14 dias com dados (`agruparPorDia().slice(-14)`).
+- Reage aos filtros de busca e status: se filtrares por status
+  `Cancelado`, o gráfico passa a mostrar a tendência de cancelamentos por
+  dia, não de confirmações. Só o filtro de Data é ignorado nesse cálculo
+  (propositadamente, é o eixo do gráfico).
+- Com menos de 2 dias distintos no conjunto filtrado, o gráfico
+  esconde-se (não há tendência para comparar com 1 ponto só).
+
+Implementado em `agruparPorDia()` + `renderChart()`, com um `<svg>` gerado
+diretamente em JS (sem biblioteca externa de gráficos).
+
+## Deteção de nome — Title Case além de MAIÚSCULAS
+
+A função `detectarNome()` só reconhecia nomes quando a observação de
+origem trazia o nome em MAIÚSCULAS no início (formato mais comum do
+export bruto da plataforma). Ficheiros já processados por esta ou outras
+ferramentas por vezes trazem o nome já em Title Case (`Joaquim Gil de
+Carvalho`), que essa regra rejeitava — ficando "Sem nome" mesmo havendo
+nome disponível.
+
+Adicionado `pareceNome()`: aceita um segmento de 2 a 6 palavras, todas
+capitalizadas (ou conectores `de/da/do/dos/das/e` em minúscula), sem
+dígitos nem pontuação de frase (`:`, `;`, `,`, `.`, `-`, `/`, `#`, `[`,
+`]`, `|`). Textos como observações de diagnóstico (`Diagnóstico: ONT OFF
+com luzes`), notas com números de telefone, ou relatos de incidente
+continuam corretamente a **não** ser tratados como nome — a pontuação e os
+dígitos que normalmente acompanham esse tipo de texto excluem-nos.
+
+**Validado** com os 703 registos reais fornecidos: dos 451 registos "Sem
+nome", a maioria (211) não tem texto nenhum na observação de origem (nada
+a recuperar), e a maior parte do restante é texto de diagnóstico/sistema
+— corretamente ainda sem nome. Cerca de 23 nomes genuínos em Title Case
+foram recuperados com a correção, sem introduzir falsos positivos nas
+amostras verificadas manualmente.
 
 ## Fluxo de trabalho
 
