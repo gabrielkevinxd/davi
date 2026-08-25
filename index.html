@@ -134,6 +134,14 @@
   .stat.warn .n{color:var(--warn);}
   .stat.danger .n{color:var(--danger);}
 
+  /* Métricas de qualidade de dados (não são status — por isso ficam
+     visualmente separadas dos 6 cartões acima, que somam o Total). */
+  .stats-quality{display:flex;gap:8px;flex-wrap:wrap;margin:-8px 0 18px;animation:fadeUp .5s var(--ease) .11s backwards;}
+  .qtd-pill{
+    font-size:11px;font-weight:600;color:var(--ink-faint);background:var(--surface);
+    border:1px solid var(--border);border-radius:100px;padding:4px 10px;
+  }
+
   .chart-panel{
     animation:fadeUp .5s var(--ease) .12s backwards;
     margin-bottom:18px;
@@ -269,6 +277,7 @@
   </div>
 
   <div class="stats" id="stats"></div>
+  <div class="stats-quality" id="statsQualidade"></div>
 
   <div class="panel chart-panel" id="chartPanel" style="display:none;">
     <div class="chart-head">
@@ -680,14 +689,26 @@ function popularFiltroDatas(){
 
 /* Dashboard dinâmico: os cartões refletem sempre o conjunto FILTRADO
    (busca + data + status), não a lista completa. Quando há um filtro
-   ativo, mostra-se também o total geral entre parêntesis para contexto. */
+   ativo, mostra-se também o total geral entre parêntesis para contexto.
+
+   Os 6 cartões principais são uma PARTIÇÃO do Total — cada registo cai em
+   exatamente um deles, por isso a soma bate sempre certo:
+     Confirmados + Não atendeu + Reagendar + Cancelados + Por confirmar = Total
+   (Antes faltava "Reagendar" — os números pareciam não bater porque um
+   status inteiro não tinha cartão nenhum.)
+
+   "Sem nome" NÃO é um status — é uma métrica de qualidade de dados (um
+   registo com qualquer status pode não ter nome). Por isso fica separado,
+   numa linha secundária, para não ser confundido com a partição acima. */
 function renderStats(lista, filtroAtivo){
   const total = lista.length;
   const confirmados = lista.filter(r => r.status === 'Confirmado').length;
   const naoAtendeu = lista.filter(r => r.status === 'Não atendeu').length;
+  const reagendar = lista.filter(r => r.status === 'Reagendar').length;
   const cancelados = lista.filter(r => r.status === 'Cancelado').length;
-  const semNome = lista.filter(r => !r.nome).length;
   const porConfirmar = lista.filter(r => !r.status).length;
+  const semNome = lista.filter(r => !r.nome).length;
+  const semData = lista.filter(r => r.data === 'SEM DATA').length;
 
   const totalGeral = registos.length;
   const contexto = filtroAtivo && totalGeral !== total
@@ -697,9 +718,14 @@ function renderStats(lista, filtroAtivo){
     <div class="stat"><div class="n">${total}${contexto}</div><div class="l">${filtroAtivo ? 'Total filtrado' : 'Total'}</div></div>
     <div class="stat accent"><div class="n">${confirmados}</div><div class="l">Confirmados</div></div>
     <div class="stat warn"><div class="n">${naoAtendeu}</div><div class="l">Não atendeu</div></div>
+    <div class="stat warn"><div class="n">${reagendar}</div><div class="l">Reagendar</div></div>
     <div class="stat danger"><div class="n">${cancelados}</div><div class="l">Cancelados</div></div>
     <div class="stat"><div class="n">${porConfirmar}</div><div class="l">Por confirmar</div></div>
-    <div class="stat"><div class="n">${semNome}</div><div class="l">Sem nome</div></div>
+  `;
+
+  document.getElementById('statsQualidade').innerHTML = `
+    <span class="qtd-pill">${semNome} sem nome</span>
+    <span class="qtd-pill">${semData} sem data</span>
   `;
 }
 

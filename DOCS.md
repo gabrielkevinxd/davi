@@ -20,10 +20,10 @@ tudo corre no browser e os dados ficam em `localStorage` do dispositivo.
 
 ## Dashboard dinâmico
 
-Os 6 cartões no topo (Total, Confirmados, Não atendeu, Cancelados, Por
-confirmar, Sem nome) refletem **sempre o conjunto atualmente filtrado**,
-não a lista completa. Isto aplica-se aos três filtros existentes e às suas
-combinações:
+Os 6 cartões no topo (Total, Confirmados, Não atendeu, Reagendar,
+Cancelados, Por confirmar) refletem **sempre o conjunto atualmente
+filtrado**, não a lista completa. Isto aplica-se aos três filtros
+existentes e às suas combinações:
 
 - Busca por texto (ver "Busca abrangente" abaixo)
 - Data
@@ -41,6 +41,30 @@ nenhum ativo, volta ao comportamento normal (`703`, rótulo "Total").
 A implementação está em `renderStats(lista, filtroAtivo)` — chamada a
 partir de `renderizar()` depois de calcular `filtrados`, para que os
 cartões e a tabela usem sempre exatamente o mesmo conjunto de dados.
+
+### Correção: os 6 cartões agora são uma partição exata do Total
+
+**Bug reportado:** faltava um cartão para o status `Reagendar` — existia
+nos dados (visível no gráfico e na tabela) mas não tinha lugar no
+dashboard, então `Confirmados + Não atendeu + Cancelados + Por confirmar`
+nunca batia certo com o Total (ficava sempre a faltar exatamente o nº de
+Ordens em `Reagendar`). Além disso, "Sem nome" estava misturado nos
+mesmos 6 cartões como se fosse mais um status — mas não é: qualquer
+registo, com qualquer status, pode não ter nome. Misturar as duas coisas
+tornava a soma ainda mais confusa de verificar.
+
+Correção:
+- Adicionado o cartão **Reagendar**. Agora os 6 cartões somam sempre
+  exatamente o Total: `Confirmados + Não atendeu + Reagendar + Cancelados
+  + Por confirmar = Total` (todo registo tem exatamente um destes status,
+  incluindo o "vazio" = Por confirmar).
+- **Sem nome** e **Sem data** saíram dos cartões de status e passaram a
+  uma linha secundária de "pills" (`#statsQualidade`), visualmente mais
+  discreta, deixando claro que são métricas de qualidade de dados, não
+  parte da contagem de status.
+
+Validado com os 704 registos reais: `69 Confirmados + 48 Não atendeu + 1
+Reagendar + 6 Cancelados + 580 Por confirmar = 704` — bate certo.
 
 ## Busca abrangente (inclui telefone)
 
