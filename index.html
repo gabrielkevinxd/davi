@@ -180,12 +180,15 @@
   .field svg{
     position:absolute;left:11px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--ink-faint);pointer-events:none;
   }
-  .field input{padding-left:34px;}
   select, input[type=text]{
     font-family:inherit;font-size:13px;border:1px solid var(--border);border-radius:9px;
     padding:9px 10px;background:var(--surface-2);color:var(--ink);width:100%;
     transition:border-color .15s, background .15s;
   }
+  /* Especificidade maior que a regra genérica acima (que também define
+     padding) para garantir que o espaço reservado ao ícone nunca é
+     anulado, independentemente da ordem das regras no ficheiro. */
+  .field input[type=text]{padding-left:34px;}
   select{min-width:150px;flex:none;}
   select:focus, input[type=text]:focus{outline:none;border-color:var(--accent);background:var(--surface);}
 
