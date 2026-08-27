@@ -572,7 +572,7 @@ async function processarLinhas(rows){
 
   const novos = [];
   const vistos = new Set();
-  let statusIgnorados = 0, semData = 0, autoConfirmados = 0;
+  let statusIgnorados = 0, semData = 0, autoConfirmados = 0, statusCorrigidos = 0;
 
   for(let i=1;i<rows.length;i++){
     const r = rows[i];
@@ -594,13 +594,29 @@ async function processarLinhas(rows){
     }
     if(data === 'SEM DATA') semData++;
 
-    let status = existente ? existente.status : '';
-    if(!status && col.status !== -1){
+    /* Prioridade do status: o FICHEIRO manda quando tem uma resposta
+       definida (Confirmado/Não atendeu/Reagendar/Cancelado); o valor já
+       guardado localmente só serve de reserva quando o ficheiro não traz
+       nada de concreto (raw da plataforma não tem coluna Status; ou a
+       célula está em branco/"Pendente").
+
+       Isto é o oposto do que a app fazia antes ("local sempre vence") —
+       essa regra parecia proteger o trabalho de confirmação, mas na
+       prática significava que um status errado (por um bug já corrigido,
+       ou uma importação anterior malformada) ficava preso no
+       localStorage PARA SEMPRE, porque nenhuma reimportação — nem com o
+       ficheiro certo — conseguia corrigi-lo depois. Um export/planilha
+       com coluna Status é sempre a fonte mais recente para esse campo;
+       o localStorage é só cache. */
+    let status = '';
+    if(col.status !== -1){
       const bruto = val(r,'status');
       const statusArquivo = normalizarStatus(bruto);
       if(statusArquivo) status = statusArquivo;
       else if(bruto && !statusEhVazioConhecido(bruto)) statusIgnorados++;
     }
+    if(!status) status = existente ? existente.status : '';
+    else if(existente && existente.status && existente.status !== status) statusCorrigidos++;
 
     const obsOrigem = val(r,'obsOrigem');
     let nome = existente && existente.nome ? existente.nome : '';
@@ -666,6 +682,7 @@ async function processarLinhas(rows){
   if(mantidosIntactos > 0) detalhes.push(`${mantidosIntactos} anteriores mantidas sem alteração`);
   if(preservados) detalhes.push(`${preservados} com status já definido preservado`);
   if(autoConfirmados) detalhes.push(`${autoConfirmados} confirmadas automaticamente (Estado: Recebida)`);
+  if(statusCorrigidos) detalhes.push(`${statusCorrigidos} status corrigidos pelo ficheiro (eram diferentes no que estava guardado)`);
   if(statusIgnorados) detalhes.push(`${statusIgnorados} status não reconhecidos`);
   if(semData) detalhes.push(`${semData} sem data`);
   if(detalhes.length) msg += ' (' + detalhes.join(', ') + ')';

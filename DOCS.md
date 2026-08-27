@@ -182,7 +182,7 @@ atuais num mapa `ordem → registo`. Para cada linha do ficheiro novo:
 
 | Campo           | Regra                                                                 |
 |-----------------|------------------------------------------------------------------------|
-| `status`        | Mantém o valor já guardado localmente. Só usa o do ficheiro se **não havia** registo local e o ficheiro trouxer um status reconhecido. |
+| `status`        | **O ficheiro manda, quando tem uma resposta definida** (Confirmado/Não atendeu/Reagendar/Cancelado). Só cai para o valor já guardado localmente quando o ficheiro não traz nada de concreto (raw da plataforma não tem coluna Status; ou a célula está em branco/"Pendente"). Ver correção abaixo — era o oposto antes. |
 | `nome`          | Mantém o nome já guardado localmente (podes tê-lo corrigido à mão). Caso contrário, usa a coluna Nome do ficheiro (se existir) ou tenta detetar automaticamente a partir da observação de origem. |
 | `obsValidacao`  | Mantém a nota de validação já escrita localmente. Caso contrário, usa a do ficheiro (se existir essa coluna). |
 | `obsOrigem`, `data`, `horario`, `contacto`, `estado`, `tecnico`, `morada`, `cidade`, `tipo` | **Sempre atualizados** com o valor mais recente do ficheiro importado (a plataforma pode ter mudado a morada, o técnico, reagendado a hora, etc.). |
@@ -245,6 +245,49 @@ alarmante tipo `"529 status não reconhecidos"` — mas eram só `"Pendente"`
 voltando, o que é normal e esperado, não um problema. Adicionado
 `statusEhVazioConhecido()` para tratar `"Pendente"`/`"Por confirmar"`/`"-"`
 como vazios conhecidos, não como erro de normalização.
+
+### Correção crítica: dados errados de bugs antigos ficavam presos para sempre
+
+**Bug reportado:** mesmo depois de várias correções, o dashboard continuava
+a mostrar contagens erradas para dias específicos (ex.: 32 confirmados
+no dia 27, quando o ficheiro tinha 38–40). A causa raiz não estava na
+contagem em si — estava em como o `status` era herdado numa reimportação.
+
+A regra antiga era **"o que já está guardado localmente vence sempre"**:
+só se lia o status do ficheiro quando não havia nenhum registo local
+ainda. Isto parecia proteger o trabalho de confirmação, mas tinha um
+efeito colateral grave: se em qualquer momento passado — por um bug
+entretanto corrigido (parsing de datas, importação que substituía tudo,
+etc.) — um registo tivesse ficado com o status errado no `localStorage`,
+**nenhuma reimportação futura, nem com o ficheiro certo, conseguia
+corrigir isso**. O erro ficava preso permanentemente, porque a app
+sempre preferia o que já "sabia" (errado) ao que o ficheiro dizia
+(certo).
+
+Correção: inverter a prioridade. Um ficheiro com coluna Status
+preenchida (o próprio export da app, ou uma planilha mestre) é sempre a
+fonte mais recente para esse campo — o `localStorage` é só uma cache. A
+regra passou a ser:
+1. Se o ficheiro trouxer um status reconhecido → usa esse (mesmo que
+   diferente do que já estava guardado — é uma correção, não uma perda).
+2. Só cai para o valor local quando o ficheiro não tem coluna Status
+   (export bruto da plataforma) ou a célula está vazia/"Pendente".
+
+Isto **não** reabre o risco original (raw da plataforma apagar
+confirmações): esse ficheiro nunca teve coluna "Status" — só "Estado",
+que é outra coisa — por isso a condição `col.status !== -1` nem chega a
+ativar-se para esse tipo de ficheiro, e o valor local continua protegido
+nesse caso.
+
+O toast pós-importação agora também avisa quando isto acontece:
+`"N status corrigidos pelo ficheiro (eram diferentes no que estava
+guardado)"`.
+
+**Validado:** simulei o cenário exato do bug — corrompi propositadamente
+15 registos do dia 27/08 (zerando o status de "Confirmado" para vazio,
+como um bug antigo teria deixado), depois reimportei o ficheiro correto
+por cima. Resultado: o dashboard voltou de 25 para os 40 confirmados
+corretos do dia 27, sozinho, sem precisar de nenhuma limpeza manual.
 
 ## Formatos de ficheiro aceites na importação
 
@@ -358,6 +401,12 @@ npx vercel --prod
 ```
 
 Site 100% estático — não precisa de variáveis de ambiente nem de build step.
+
+`vercel.json` define `Cache-Control: no-cache, must-revalidate` para
+`index.html`, para que cada visita ao site vá sempre buscar a versão mais
+recente publicada, em vez de ficar presa numa cópia antiga em cache do
+browser depois de um novo `git push`. Se ainda assim vires código antigo
+depois de um deploy, força um "hard refresh" (Ctrl+Shift+R) uma vez.
 
 ## Limitações conhecidas / próximos passos
 
