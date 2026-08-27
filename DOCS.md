@@ -191,6 +191,61 @@ Ou seja: o teu trabalho de confirmação nunca é apagado por uma reimportação
 mas os dados operacionais (data/hora/técnico/morada) ficam sempre
 sincronizados com o último export.
 
+### Correção crítica: importar nunca mais apaga Ordens que faltem no ficheiro
+
+**Bug reportado:** ao importar um ficheiro "cru" (export da plataforma que
+só trazia as Ordens novas do dia, não o universo completo), a app
+**substituía** a lista inteira pelo conteúdo desse ficheiro — todas as
+Ordens que já estavam a ser trabalhadas e não constavam desse export em
+particular **desapareciam silenciosamente** do dashboard, da tabela e do
+gráfico. Era a "alucinação" reportada: números do dashboard mudavam
+drasticamente ao importar um ficheiro que devia só ter *acrescentado*
+trabalho novo.
+
+Causa: a última linha de `processarLinhas()` fazia `registos = novos`,
+onde `novos` continha só as linhas encontradas *nesse* ficheiro. Um
+export parcial da plataforma nunca foi pensado para representar o
+universo inteiro — mas o código tratava-o sempre como se fosse.
+
+Correção: a importação agora faz uma **união**, nunca uma substituição.
+```js
+const mapaFinal = new Map(registos.map(r => [r.ordem, r]));
+novos.forEach(n => mapaFinal.set(n.ordem, n));
+registos = [...mapaFinal.values()];
+```
+- Uma Ordem que já existia e **não** aparece no ficheiro importado
+  continua exatamente como estava (não é tocada).
+- Uma Ordem que já existia e **aparece** no ficheiro é atualizada (dados
+  operacionais frescos, status/nome/validação preservados — regra da
+  tabela acima).
+- Uma Ordem que não existia é adicionada.
+
+O toast pós-importação passou a refletir isto com números explícitos:
+`"N Ordens novas adicionadas, M atualizadas. (P anteriores mantidas sem
+alteração)"` — para nunca mais haver dúvida sobre o que uma importação
+fez.
+
+Se um dia for mesmo necessário substituir tudo (ex.: recomeçar do zero
+com um ficheiro totalmente diferente), usa "Limpar tudo" antes de
+importar — a importação em si nunca remove nada por conta própria.
+
+**Validado:** com os 704 registos reais do utilizador como base +
+simulação de um export parcial (3 Ordens novas, formato bruto da
+plataforma) — resultado: 707 no total, as 704 antigas intactas
+(confirmações incluídas), as 3 novas adicionadas. Reimportar a própria
+base 704 depois disso mantém as 3 extra intocadas (`"704 anteriores
+mantidas sem alteração"`).
+
+### Correção: "Pendente" deixa de contar como "status não reconhecido"
+
+Efeito colateral do bug acima: como cada reimportação da própria app
+escreve `"Pendente"` na coluna Status de toda Ordem sem confirmação (ver
+`exportXlsxBtn`), reimportar o próprio ficheiro gerava sempre um aviso
+alarmante tipo `"529 status não reconhecidos"` — mas eram só `"Pendente"`
+voltando, o que é normal e esperado, não um problema. Adicionado
+`statusEhVazioConhecido()` para tratar `"Pendente"`/`"Por confirmar"`/`"-"`
+como vazios conhecidos, não como erro de normalização.
+
 ## Formatos de ficheiro aceites na importação
 
 A app reconhece automaticamente três variantes de cabeçalho (case- e

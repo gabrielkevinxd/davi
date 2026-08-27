@@ -509,9 +509,19 @@ const STATUS_CANONICOS = {
   'reagendar': 'Reagendar',
   'cancelado': 'Cancelado'
 };
+/* "Pendente" é o texto que a própria app escreve na coluna Status ao
+   exportar uma Ordem sem confirmação (ver exportXlsxBtn). Ao reimportar
+   um export próprio, não é um "status desconhecido" — é só o marcador de
+   "por confirmar" a voltar. Tratá-lo como reconhecido evita o aviso
+   "N status não reconhecidos" aparecer sempre que se reimporta o próprio
+   ficheiro exportado. */
+const STATUS_VAZIO_CONHECIDO = ['pendente', 'por confirmar', '-'];
 function normalizarStatus(v){
   const n = normalizarTexto(v);
   return STATUS_CANONICOS[n] || '';
+}
+function statusEhVazioConhecido(v){
+  return STATUS_VAZIO_CONHECIDO.includes(normalizarTexto(v));
 }
 
 function tituloCaso(s){
@@ -560,10 +570,10 @@ async function processarLinhas(rows){
 
     let status = existente ? existente.status : '';
     if(!status && col.status !== -1){
-      const statusArquivo = normalizarStatus(val(r,'status'));
       const bruto = val(r,'status');
+      const statusArquivo = normalizarStatus(bruto);
       if(statusArquivo) status = statusArquivo;
-      else if(bruto) statusIgnorados++;
+      else if(bruto && !statusEhVazioConhecido(bruto)) statusIgnorados++;
     }
 
     const obsOrigem = val(r,'obsOrigem');
@@ -587,14 +597,35 @@ async function processarLinhas(rows){
     });
   }
 
-  const preservados = novos.filter(r => existentes[r.ordem] && existentes[r.ordem].status).length;
-  registos = novos;
+  const preservados = novos.filter(r => existentes[r.ordem] && existentes[r.ordem].status).length; // qualquer status já definido, não só "Confirmado"
+
+  /* UNIÃO, nunca substituição: um ficheiro importado pode ser um export
+     parcial da plataforma (só as OTs novas do dia, por exemplo), não
+     necessariamente o universo completo. Substituir `registos` por
+     `novos` apagaria silenciosamente tudo o que já estava a ser
+     trabalhado e não constasse desse ficheiro em particular. Por isso,
+     cada importação só ADICIONA Ordens novas e ATUALIZA as que já
+     existem (mantendo status/nome/observação de validação) — nunca
+     remove uma Ordem que não apareça no ficheiro atual. */
+  const totalAntes = registos.length;
+  const mapaFinal = new Map(registos.map(r => [r.ordem, r]));
+  let adicionados = 0, atualizados = 0;
+  novos.forEach(n => {
+    if(mapaFinal.has(n.ordem)) atualizados++; else adicionados++;
+    mapaFinal.set(n.ordem, n);
+  });
+  registos = [...mapaFinal.values()];
+  const mantidosIntactos = totalAntes - atualizados;
+
   salvar();
   renderizar();
 
-  let msg = `Importadas ${registos.length} Ordens de Trabalho.`;
+  let msg = adicionados
+    ? `${adicionados} Ordens novas adicionadas, ${atualizados} atualizadas.`
+    : `${atualizados} Ordens atualizadas.`;
   const detalhes = [];
-  if(preservados) detalhes.push(`${preservados} confirmações anteriores mantidas`);
+  if(mantidosIntactos > 0) detalhes.push(`${mantidosIntactos} anteriores mantidas sem alteração`);
+  if(preservados) detalhes.push(`${preservados} com status já definido preservado`);
   if(statusIgnorados) detalhes.push(`${statusIgnorados} status não reconhecidos`);
   if(semData) detalhes.push(`${semData} sem data`);
   if(detalhes.length) msg += ' (' + detalhes.join(', ') + ')';
