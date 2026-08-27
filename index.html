@@ -141,6 +141,7 @@
     font-size:11px;font-weight:600;color:var(--ink-faint);background:var(--surface);
     border:1px solid var(--border);border-radius:100px;padding:4px 10px;
   }
+  .qtd-pill.destaque{color:var(--accent);background:var(--accent-dim);border-color:var(--accent);}
 
   .chart-panel{
     animation:fadeUp .5s var(--ease) .12s backwards;
@@ -207,6 +208,7 @@
   tr.validado:hover{background:var(--ok-dim);filter:brightness(0.97);}
   tr.sem-nome{background:var(--warn-dim);}
   tr.sem-data{background:var(--danger-dim);}
+  tr.sem-tecnico{opacity:.6;}
 
   input.cell, select.cell{
     width:100%;border:1px solid transparent;background:transparent;padding:5px 6px;
@@ -313,6 +315,7 @@
         <option value="Cancelado">Cancelado</option>
         <option value="__pendente__">— Por confirmar —</option>
       </select>
+      <select id="estadoFilter"><option value="">Todos os estados</option></select>
     </div>
 
     <div class="tablewrap">
@@ -325,6 +328,7 @@
             <th style="width:110px;">Horário</th>
             <th style="width:150px;">Nome</th>
             <th style="width:100px;">Contacto</th>
+            <th style="width:120px;">Estado</th>
             <th>Observação origem</th>
             <th>Observação (validação)</th>
           </tr>
@@ -528,6 +532,28 @@ function tituloCaso(s){
   return String(s||'').trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 }
 
+/* ---------- prioridade de contacto, a partir do "Estado" da plataforma ----------
+   Regra de negócio: só vale a pena ligar quando o "Estado" é "Atribuída"
+   (já tem técnico, é preciso confirmar com o cliente). "Recebida" quer
+   dizer que o próprio operador já está a criar a OT a pedido do cliente
+   — o cliente já está à espera, por isso conta como confirmado sem
+   precisar de chamada. Qualquer outro estado ("Não atribuída",
+   "Despachada", etc.) ainda não tem técnico — não vale a pena ligar
+   ainda, fica "à espera" até ganhar técnico num próximo export. */
+function prioridadeEstado(estado){
+  const n = normalizarTexto(estado);
+  if(n === 'atribuida') return 'ligar';
+  if(n === 'recebida') return 'auto';
+  return 'espera';
+}
+function badgeEstado(estado){
+  const p = prioridadeEstado(estado);
+  const texto = estado || '—';
+  if(p === 'ligar') return `<span class="badge ok" title="Tem técnico — vale a pena ligar">${texto}</span>`;
+  if(p === 'auto') return `<span class="badge neutral" title="Confirmado automaticamente, sem necessidade de ligar">${texto}</span>`;
+  return `<span class="badge warn" title="Ainda sem técnico atribuído">${texto}</span>`;
+}
+
 async function processarLinhas(rows){
   if(rows.length < 2){ showToast('Ficheiro vazio ou inválido.', 'error'); return; }
 
@@ -546,7 +572,7 @@ async function processarLinhas(rows){
 
   const novos = [];
   const vistos = new Set();
-  let statusIgnorados = 0, semData = 0;
+  let statusIgnorados = 0, semData = 0, autoConfirmados = 0;
 
   for(let i=1;i<rows.length;i++){
     const r = rows[i];
@@ -584,12 +610,25 @@ async function processarLinhas(rows){
     let obsValidacao = existente ? existente.obsValidacao : '';
     if(!obsValidacao && col.obsValidacao !== -1) obsValidacao = val(r,'obsValidacao');
 
+    const estado = val(r,'estado');
+
+    /* Confirmação automática: "Recebida" significa que o próprio operador
+       está a criar a OT a pedido do cliente — o cliente já está à espera,
+       não é preciso ligar para confirmar. Só se aplica quando ainda não
+       havia status nenhum definido (nem local, nem no ficheiro), para
+       nunca sobrepor uma decisão manual (ex.: alguém já marcou Cancelado). */
+    if(!status && col.estado !== -1 && prioridadeEstado(estado) === 'auto'){
+      status = 'Confirmado';
+      autoConfirmados++;
+      if(!obsValidacao) obsValidacao = 'Confirmado automaticamente — Estado "Recebida" (cliente já à espera).';
+    }
+
     novos.push({
       ordem, status, data, horario, nome,
       contacto: val(r,'contacto'),
       obsOrigem,
       obsValidacao,
-      estado: val(r,'estado'),
+      estado,
       tecnico: val(r,'tecnico'),
       morada: val(r,'morada'),
       cidade: val(r,'cidade'),
@@ -626,6 +665,7 @@ async function processarLinhas(rows){
   const detalhes = [];
   if(mantidosIntactos > 0) detalhes.push(`${mantidosIntactos} anteriores mantidas sem alteração`);
   if(preservados) detalhes.push(`${preservados} com status já definido preservado`);
+  if(autoConfirmados) detalhes.push(`${autoConfirmados} confirmadas automaticamente (Estado: Recebida)`);
   if(statusIgnorados) detalhes.push(`${statusIgnorados} status não reconhecidos`);
   if(semData) detalhes.push(`${semData} sem data`);
   if(detalhes.length) msg += ' (' + detalhes.join(', ') + ')';
@@ -721,6 +761,15 @@ function popularFiltroDatas(){
   sel.value = atual;
 }
 
+function popularFiltroEstados(){
+  const sel = document.getElementById('estadoFilter');
+  const atual = sel.value;
+  const estados = [...new Set(registos.map(r => r.estado).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">Todos os estados</option>' +
+    estados.map(e => `<option value="${e}">${e}</option>`).join('');
+  sel.value = atual;
+}
+
 /* Dashboard dinâmico: os cartões refletem sempre o conjunto FILTRADO
    (busca + data + status), não a lista completa. Quando há um filtro
    ativo, mostra-se também o total geral entre parêntesis para contexto.
@@ -743,6 +792,8 @@ function renderStats(lista, filtroAtivo){
   const porConfirmar = lista.filter(r => !r.status).length;
   const semNome = lista.filter(r => !r.nome).length;
   const semData = lista.filter(r => r.data === 'SEM DATA').length;
+  const aLigar = lista.filter(r => !r.status && prioridadeEstado(r.estado) === 'ligar').length;
+  const semTecnico = lista.filter(r => !r.status && prioridadeEstado(r.estado) === 'espera').length;
 
   const totalGeral = registos.length;
   const contexto = filtroAtivo && totalGeral !== total
@@ -758,6 +809,8 @@ function renderStats(lista, filtroAtivo){
   `;
 
   document.getElementById('statsQualidade').innerHTML = `
+    <span class="qtd-pill destaque">${aLigar} a ligar (Atribuída)</span>
+    <span class="qtd-pill">${semTecnico} à espera de técnico</span>
     <span class="qtd-pill">${semNome} sem nome</span>
     <span class="qtd-pill">${semData} sem data</span>
   `;
@@ -918,33 +971,39 @@ function bateStatus(r, filtroStatus){
   return r.status === filtroStatus;
 }
 
+function bateEstado(r, filtroEstado){
+  return !filtroEstado || r.estado === filtroEstado;
+}
+
 function renderizar(){
   popularFiltroDatas();
+  popularFiltroEstados();
 
   const busca = document.getElementById('searchInput').value.trim().toLowerCase();
   const filtroData = document.getElementById('dataFilter').value;
   const filtroStatus = document.getElementById('statusFilter').value;
-  const filtroAtivo = !!(busca || filtroData || filtroStatus);
+  const filtroEstado = document.getElementById('estadoFilter').value;
+  const filtroAtivo = !!(busca || filtroData || filtroStatus || filtroEstado);
 
   const tbody = document.getElementById('tbody');
   const filtrados = registos.filter(r =>
-    (!filtroData || r.data === filtroData) && bateStatus(r, filtroStatus) && bateBusca(r, busca)
+    (!filtroData || r.data === filtroData) && bateStatus(r, filtroStatus) && bateEstado(r, filtroEstado) && bateBusca(r, busca)
   );
 
   renderStats(filtrados, filtroAtivo);
 
-  /* O gráfico usa busca+status mas ignora o filtro de data (o próprio
-     eixo X é feito de datas) — só aparece quando "Todas as datas" está
-     selecionado, que é a "vista geral". */
+  /* O gráfico usa busca+status+estado mas ignora o filtro de data (o
+     próprio eixo X é feito de datas) — só aparece quando "Todas as
+     datas" está selecionado, que é a "vista geral". */
   if(!filtroData){
-    const baseGrafico = registos.filter(r => bateStatus(r, filtroStatus) && bateBusca(r, busca));
+    const baseGrafico = registos.filter(r => bateStatus(r, filtroStatus) && bateEstado(r, filtroEstado) && bateBusca(r, busca));
     renderChart(baseGrafico);
   } else {
     document.getElementById('chartPanel').style.display = 'none';
   }
 
   if(filtrados.length === 0){
-    tbody.innerHTML = `<tr><td colspan="8"><div class="empty">
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty">
       <svg data-lucide="${registos.length === 0 ? 'inbox' : 'search-x'}"></svg>
       <div class="t">${registos.length === 0 ? 'Ainda sem agendamentos' : 'Nenhum registo encontrado'}</div>
       <div class="d">${registos.length === 0 ? 'Importa um CSV ou Excel para começares.' : 'Ajusta a busca ou os filtros.'}</div>
@@ -954,9 +1013,15 @@ function renderizar(){
   }
 
   tbody.innerHTML = filtrados.map(r => {
-    const cls = r.status ? 'validado' : (r.data === 'SEM DATA' ? 'sem-data' : (!r.nome ? 'sem-nome' : ''));
+    const classes = [];
+    if(r.status) classes.push('validado');
+    else {
+      if(r.data === 'SEM DATA') classes.push('sem-data');
+      if(!r.nome) classes.push('sem-nome');
+      if(prioridadeEstado(r.estado) === 'espera') classes.push('sem-tecnico');
+    }
     return `
-    <tr class="${cls}" data-ordem="${r.ordem}">
+    <tr class="${classes.join(' ')}" data-ordem="${r.ordem}">
       <td>${r.ordem}</td>
       <td>
         <select class="cell" onchange="atualizarCampo('${r.ordem}','status',this.value)">
@@ -971,6 +1036,7 @@ function renderizar(){
       <td>${r.horario}</td>
       <td><input class="cell" type="text" value="${(r.nome||'').replace(/"/g,'&quot;')}" onchange="atualizarCampo('${r.ordem}','nome',this.value)"></td>
       <td>${r.contacto || ''}</td>
+      <td>${badgeEstado(r.estado)}</td>
       <td style="max-width:220px;font-size:11px;color:var(--ink-faint);">${(r.obsOrigem||'').slice(0,120)}</td>
       <td><input class="cell" type="text" value="${(r.obsValidacao||'').replace(/"/g,'&quot;')}" placeholder="Nota da chamada..." onchange="atualizarCampo('${r.ordem}','obsValidacao',this.value)"></td>
     </tr>`;
@@ -989,6 +1055,7 @@ window.atualizarCampo = function(ordem, campo, valor){
 document.getElementById('searchInput').addEventListener('input', renderizar);
 document.getElementById('dataFilter').addEventListener('change', renderizar);
 document.getElementById('statusFilter').addEventListener('change', renderizar);
+document.getElementById('estadoFilter').addEventListener('change', renderizar);
 
 document.getElementById('exportBtn').addEventListener('click', ()=>{
   if(registos.length === 0){ showToast('Nada para exportar ainda.', 'error'); return; }
@@ -1033,10 +1100,9 @@ document.getElementById('exportXlsxBtn').addEventListener('click', async ()=>{
     { header: 'Tipo',               key: 'tipo',         width: 16 }
   ];
 
-  /* Grade fina só nas células com conteúdo — uma célula sem valor fica
-     mesmo em branco, sem contorno, em vez do grid completo típico do
-     Excel que marca tudo, cheio ou vazio. */
-  const bordaFina = { style:'thin', color:{ argb:'FFD3D8CF' } };
+  /* Grade preta em todas as células, com ou sem conteúdo — divisão clara
+     entre linhas e colunas, como uma folha de cálculo bem definida. */
+  const bordaFina = { style:'thin', color:{ argb:'FF000000' } };
   const comBorda = { top:bordaFina, left:bordaFina, bottom:bordaFina, right:bordaFina };
   const CAMPOS = ['ordem','status','data','horario','nome','contacto','obsOrigem','obsValidacao','estado','tecnico','morada','cidade','tipo'];
 
@@ -1071,9 +1137,7 @@ document.getElementById('exportXlsxBtn').addEventListener('click', async ()=>{
     CAMPOS.forEach(key=>{
       const cell = row.getCell(key);
       cell.alignment = { vertical:'middle', wrapText:false };
-      if(cell.value !== null && cell.value !== undefined && cell.value !== ''){
-        cell.border = comBorda;
-      }
+      cell.border = comBorda;
     });
     const statusCell = row.getCell('status');
     if(fillByStatus[r.status]){
@@ -1088,6 +1152,11 @@ document.getElementById('exportXlsxBtn').addEventListener('click', async ()=>{
     if(!r.nome){
       row.getCell('nome').font = { italic:true, color:{ argb:'FFB6742A' } };
     }
+    const estadoCell = row.getCell('estado');
+    const prioridade = prioridadeEstado(r.estado);
+    if(prioridade === 'ligar') estadoCell.font = { bold:true, color:{ argb:'FF1F6B52' } };
+    else if(prioridade === 'auto') estadoCell.font = { italic:true, color:{ argb:'FF8A8F83' } };
+    else if(r.estado) estadoCell.font = { color:{ argb:'FFB6742A' } };
   });
 
   ws.autoFilter = { from: 'A1', to: `M${registos.length+1}` };

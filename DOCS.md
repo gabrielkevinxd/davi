@@ -282,15 +282,50 @@ no aviso pós-importação, para nunca passarem despercebidos.
 - **Exportar** `.xlsx`: gerado com ExcelJS — cabeçalho a negrito com fundo
   verde, colunas com largura ajustada, primeira linha fixa (freeze),
   autofiltro, e células de Status coloridas por valor.
-- **Grade (bordas)**: só as células com conteúdo recebem borda fina —
-  uma célula sem valor (ex.: Nome ou Observação por preencher) fica em
-  branco, sem contorno nenhum, em vez do grid uniforme típico do Excel
-  que desenha borda em tudo, cheio ou vazio. Como o Excel trata `''`
-  (string vazia) como "tem valor" para efeitos de iteração de células, a
-  app verifica explicitamente cada campo do registo (`CAMPOS.forEach`)
-  em vez de confiar no `eachCell` automático do ExcelJS — validado nas
-  704 linhas reais do utilizador, zero células incoerentes (vazia com
-  borda, ou preenchida sem borda).
+- **Grade (bordas)**: todas as células — cabeçalho e dados, com ou sem
+  conteúdo — recebem borda fina preta (`FF000000`), formando um grid
+  completo e bem definido, como uma folha de cálculo tradicional.
+  (Versão anterior deixava células vazias sem contorno; o pedido seguinte
+  do utilizador pediu o grid completo em preto, revertendo esse
+  comportamento — ver histórico de commits se precisares da versão
+  seletiva.) Validado nas 685 linhas reais do utilizador: zero células
+  sem borda, zero com cor diferente de preto.
+
+## Prioridade de contacto — a coluna "Estado" da plataforma
+
+A coluna `Estado` (vem do export bruto da plataforma — não confundir com
+`Status`, que é o campo de confirmação editável pela app) diz em que fase
+do fluxo interno a Ordem está. Regra de negócio definida pelo utilizador:
+
+| Estado da plataforma | O que significa | O que a app faz |
+|---|---|---|
+| **Atribuída** | Já tem técnico — é o único caso onde vale mesmo a pena ligar ao cliente. | Fica como "Por confirmar" normalmente; aparece com badge verde "vale a pena ligar" e conta no indicador **"X a ligar (Atribuída)"** do dashboard. |
+| **Recebida** | O próprio operador está a criar a OT a pedido do cliente — o cliente já está à espera, não é preciso confirmar por telefone. | **Confirmado automaticamente** ao importar (só se ainda não havia nenhum status definido, para nunca sobrepor uma decisão manual). A observação de validação recebe a nota `"Confirmado automaticamente — Estado "Recebida""` para ficar rastreável. |
+| Qualquer outro valor (`Não atribuída`, `Despachada`, etc.) | Ainda sem técnico atribuído — não há ninguém para visitar o cliente ainda, não vale a pena ligar já. | Fica "Por confirmar", mas a linha fica visualmente esmaecida (opacidade reduzida) e conta em **"X à espera de técnico"**. Volta ao normal assim que o Estado mudar para Atribuída ou Recebida num próximo import. |
+
+Implementado em `prioridadeEstado(estado)` (retorna `'ligar' | 'auto' |
+'espera'`) e `badgeEstado(estado)` (gera o badge colorido). A app não
+tenta adivinhar "Não agendada" — essa categoria nem chega a aparecer no
+export bruto da plataforma (OTs sem técnico simplesmente não têm uma
+linha ali), por isso não há nada a tratar por código para esse caso.
+
+### Filtro por Estado e indicadores no dashboard
+
+- Novo dropdown de filtro **"Todos os estados"**, ao lado dos filtros
+  existentes — selecionar "Atribuída" isola exactamente a lista de
+  quem precisa de uma chamada agora.
+- Duas pills novas na linha de qualidade de dados: **"X a ligar
+  (Atribuída)"** (destacada, cor de acento) e **"X à espera de
+  técnico"** — ambas contam só entre os registos **ainda sem status**
+  (`!r.status`), para não incluir Ordens já tratadas.
+- A coluna "Estado" passou a aparecer também na tabela em ecrã (antes só
+  existia no export Excel), com o mesmo badge colorido.
+
+**Validado** com o ficheiro real do utilizador (685 Ordens, 4 estados:
+Atribuída 426, Não atribuída 142, Recebida 59, Despachada 58): as 59
+"Recebida" ficaram todas com status "Confirmado" automaticamente, zero
+"Atribuída" foi tocada, indicador "a ligar" mostrou exatamente 426,
+"à espera de técnico" mostrou exatamente 200 (142+58).
 
 ## Validação feita (dados reais, 2026-08-25)
 
