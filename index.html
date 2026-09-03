@@ -671,13 +671,37 @@ function encontrarCabecalho(ws, testeColunas, maxLinhas){
   return null;
 }
 
+/* Colunas localizadas pelo NOME (em qualquer posição), não pela ordem
+   fixa — um ficheiro com colunas reordenadas, ou uma coluna extra no
+   meio, não pode fazer a deteção falhar silenciosamente. */
+const ALIASES_NOMES = {
+  ot: ['ot','nº ot','n ot','ordem'],
+  cliente: ['cliente'],
+  contato: ['contato','contacto'],
+  contatoAlt: ['contato alternativo','contacto alternativo'],
+  morada: ['morada'],
+  obs: ['obs','observacoes','observações','observação']
+};
+function indiceColuna(headers, aliases){
+  for(const a of aliases){ const p = headers.indexOf(a); if(p !== -1) return p; }
+  return -1;
+}
+function pareceFicheiroNomes(vals){
+  return indiceColuna(vals, ALIASES_NOMES.ot) !== -1 && indiceColuna(vals, ALIASES_NOMES.cliente) !== -1;
+}
+
 async function processarNomes(wb){
   let atualizados = 0, ignorados = 0, folhasUsadas = 0;
   wb.worksheets.forEach(ws=>{
-    const cab = encontrarCabecalho(ws, vals => vals[0]==='ot' && vals[1]==='cliente', 3);
+    const cab = encontrarCabecalho(ws, pareceFicheiroNomes, 3);
     if(!cab) return;
     folhasUsadas++;
-    const iOT=0, iCliente=1, iContato=2, iContatoAlt=3, iMorada=4, iObs=5;
+    const iOT = indiceColuna(cab.headers, ALIASES_NOMES.ot);
+    const iCliente = indiceColuna(cab.headers, ALIASES_NOMES.cliente);
+    const iContato = indiceColuna(cab.headers, ALIASES_NOMES.contato);
+    const iContatoAlt = indiceColuna(cab.headers, ALIASES_NOMES.contatoAlt);
+    const iMorada = indiceColuna(cab.headers, ALIASES_NOMES.morada);
+    const iObs = indiceColuna(cab.headers, ALIASES_NOMES.obs);
     ws.eachRow({includeEmpty:false},(row, i)=>{
       if(i <= cab.linha) return;
       const vals = row.values.slice(1).map(celulaTexto);
@@ -908,7 +932,7 @@ async function processarXlsxBuffer(buffer){
       await processarListaEspera(wb);
       return;
     }
-    const temFolhaNomes = wb.worksheets.some(w => encontrarCabecalho(w, vals => vals[0]==='ot' && vals[1]==='cliente', 3));
+    const temFolhaNomes = wb.worksheets.some(w => encontrarCabecalho(w, pareceFicheiroNomes, 3));
     const temFolhaRegistos = wb.worksheets.some(w => normalizarTexto(w.name) === 'confirmações' || normalizarTexto(w.name) === 'confirmacoes');
     if(temFolhaNomes && !temFolhaRegistos){
       await processarNomes(wb);
