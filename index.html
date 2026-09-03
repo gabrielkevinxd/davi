@@ -735,12 +735,15 @@ const CAMPOS_LISTA_ESPERA = {
 
 async function processarListaEspera(wb){
   const ws = wb.worksheets.find(w => normalizarTexto(w.name) === 'lista espera') || wb.worksheets[0];
-  const cab = encontrarCabecalho(ws, vals => vals[0]==='ordem trabalho', 2);
+  const cab = encontrarCabecalho(ws, vals => indiceColuna(vals, ['ordem trabalho']) !== -1, 2);
   if(!cab){ showToast('Não reconheci este ficheiro como Lista Espera (esperava a coluna "ordem trabalho").', 'error'); return; }
 
+  const iOrdemLE = indiceColuna(cab.headers, ['ordem trabalho']);
+  const iCliente = indiceColuna(cab.headers, ['cliente']);
+  const iContatoLE = indiceColuna(cab.headers, ['contacto', 'contato']);
   const idxCampo = {};
   for(const campo in CAMPOS_LISTA_ESPERA){
-    idxCampo[campo] = cab.headers.indexOf(CAMPOS_LISTA_ESPERA[campo]);
+    idxCampo[campo] = indiceColuna(cab.headers, [CAMPOS_LISTA_ESPERA[campo]]);
   }
   const numero = v => { const n = parseFloat(String(v||'').replace(',','.')); return isNaN(n) ? null : n; };
 
@@ -748,10 +751,22 @@ async function processarListaEspera(wb){
   ws.eachRow({includeEmpty:false},(row, i)=>{
     if(i <= cab.linha) return;
     const vals = row.values.slice(1).map(celulaTexto);
-    const ordem = String(vals[0]||'').trim();
+    const ordem = String(vals[iOrdemLE]||'').trim();
     if(!ordem) return;
     const registo = registos.find(r=>r.ordem===ordem);
     if(!registo){ ignorados++; return; }
+    /* "cliente"/"contacto" aqui são o mesmo tipo de dado (nome real,
+       telefone) que o ficheiro de Nomes traz — merece o mesmo
+       tratamento: nome sempre atualizado (fonte fiável), contacto só
+       preenchido se ainda estiver vazio. */
+    if(iCliente !== -1){
+      const cliente = String(vals[iCliente]||'').trim();
+      if(cliente) registo.nome = tituloCaso(cliente);
+    }
+    if(iContatoLE !== -1){
+      const contatoLE = String(vals[iContatoLE]||'').trim();
+      if(contatoLE && !registo.contacto) registo.contacto = contatoLE;
+    }
     for(const campo in idxCampo){
       const idx = idxCampo[campo];
       if(idx === -1) continue;
