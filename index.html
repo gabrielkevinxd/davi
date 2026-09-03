@@ -246,6 +246,39 @@
 
   .drop-active{outline:2px dashed var(--accent);outline-offset:4px;border-radius:14px;}
 
+  .detalhe-btn{
+    display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:5px;
+    border:none;background:var(--surface-2);color:var(--ink-faint);border-radius:50%;cursor:pointer;vertical-align:middle;
+    transition:color .15s, background .15s;
+  }
+  .detalhe-btn:hover{color:var(--accent);background:var(--accent-dim);}
+  .detalhe-btn svg{width:11px;height:11px;}
+
+  .detalhe-overlay{
+    position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;
+    z-index:150;padding:20px;
+  }
+  .detalhe-overlay.show{display:flex;}
+  .detalhe-modal{
+    background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:22px;
+    max-width:420px;width:100%;max-height:80vh;overflow-y:auto;position:relative;box-shadow:var(--shadow-md);
+    animation:fadeUp .2s var(--ease);
+  }
+  .detalhe-modal h3{margin:0 0 14px;font-size:15px;font-weight:700;}
+  .detalhe-fechar{
+    position:absolute;top:14px;right:14px;border:none;background:var(--surface-2);color:var(--ink-faint);
+    width:26px;height:26px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  }
+  .detalhe-fechar:hover{color:var(--ink);}
+  .detalhe-fechar svg{width:13px;height:13px;}
+  .detalhe-linha{
+    display:flex;justify-content:space-between;gap:14px;padding:8px 0;border-bottom:1px solid var(--border);
+    font-size:12.5px;
+  }
+  .detalhe-linha:last-child{border-bottom:none;}
+  .detalhe-linha span{color:var(--ink-faint);}
+  .detalhe-linha b{color:var(--ink);font-weight:600;text-align:right;}
+
   @media (max-width:760px){
     .stats{grid-template-columns:repeat(3,1fr);}
     .wrap{padding:16px 14px 70px;}
@@ -316,6 +349,7 @@
         <option value="__pendente__">— Por confirmar —</option>
       </select>
       <select id="estadoFilter"><option value="">Todos os estados</option></select>
+      <select id="operadorFilter"><option value="">Todos os operadores</option></select>
     </div>
 
     <div class="tablewrap">
@@ -329,6 +363,7 @@
             <th style="width:150px;">Nome</th>
             <th style="width:100px;">Contacto</th>
             <th style="width:120px;">Estado</th>
+            <th style="width:110px;">Operador</th>
             <th>Observação origem</th>
             <th>Observação (validação)</th>
           </tr>
@@ -340,6 +375,13 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<div class="detalhe-overlay" id="detalheOverlay" onclick="if(event.target===this) fecharDetalhe()">
+  <div class="detalhe-modal">
+    <button class="detalhe-fechar" onclick="fecharDetalhe()"><svg data-lucide="x"></svg></button>
+    <div id="detalheBody"></div>
+  </div>
+</div>
 
 <script>
 let registos = [];
@@ -554,6 +596,131 @@ function badgeEstado(estado){
   return `<span class="badge warn" title="Ainda sem técnico atribuído">${texto}</span>`;
 }
 
+/* ---------- Operador — "NOS" (marca) tem dois códigos de acesso na
+   Lista Espera: NPR = acesso comum, NOS = acesso empresarial. Ambos são
+   trabalho da NOS; separamos só para dar contexto, nunca tratamos como
+   operadores diferentes na prática. */
+function rotuloOperador(op){
+  const n = normalizarTexto(op);
+  if(n === 'npr') return 'NOS · comum';
+  if(n === 'nos') return 'NOS · empresarial';
+  return op || '';
+}
+function corOperador(op){
+  const n = normalizarTexto(op);
+  if(n === 'npr' || n === 'nos') return 'ok';
+  if(n === 'meo') return 'warn';
+  if(n === 'vdf') return 'danger';
+  return 'neutral';
+}
+function badgeOperador(op){
+  if(!op) return '';
+  return `<span class="badge ${corOperador(op)}">${rotuloOperador(op)}</span>`;
+}
+
+/* ---------- Ficheiros de enriquecimento (correlação) ----------
+   Duas fontes externas que NÃO substituem nem adicionam Ordens à base —
+   só preenchem campos extra em Ordens que já existem, ligadas pelo mesmo
+   número de Ordem/OT:
+
+   1) "Confirmação agendamentos" — planilha com o nome real do cliente e
+      contacto alternativo, uma folha por dia, cabeçalho OT/CLIENTE/
+      CONTATO/CONTATO ALTERNATIVO/MORADA/OBS (a posição do cabeçalho
+      varia por folha, por isso procuramos nas primeiras linhas em vez
+      de assumir sempre a linha 1).
+   2) "Lista Espera" — base rica multi-operador (MEO/VDF/NOS/NPR/...)
+      com tecnologia, distância linear, metragem, segmento de cliente,
+      gestor RC, sintoma, coordenadas, etc. Hoje só trabalhamos OTs da
+      NOS (NPR+NOS) por telefone — por isso esta importação só enriquece
+      Ordens já presentes na base, nunca cria Ordens novas de outros
+      operadores. Quando isso mudar no futuro, é aqui que se liga o
+      resto da carteira. */
+
+function encontrarCabecalho(ws, testeColunas, maxLinhas){
+  for(let i=1;i<=maxLinhas;i++){
+    const vals = (ws.getRow(i).values || []).slice(1).map(celulaTexto).map(normalizarTexto);
+    if(testeColunas(vals)) return { linha:i, headers: vals };
+  }
+  return null;
+}
+
+async function processarNomes(wb){
+  let atualizados = 0, ignorados = 0, folhasUsadas = 0;
+  wb.worksheets.forEach(ws=>{
+    const cab = encontrarCabecalho(ws, vals => vals[0]==='ot' && vals[1]==='cliente', 3);
+    if(!cab) return;
+    folhasUsadas++;
+    const iOT=0, iCliente=1, iContato=2, iContatoAlt=3, iMorada=4, iObs=5;
+    ws.eachRow({includeEmpty:false},(row, i)=>{
+      if(i <= cab.linha) return;
+      const vals = row.values.slice(1).map(celulaTexto);
+      const ordem = String(vals[iOT]||'').trim();
+      if(!ordem) return;
+      const registo = registos.find(r=>r.ordem===ordem);
+      if(!registo){ ignorados++; return; }
+      const cliente = String(vals[iCliente]||'').trim();
+      if(cliente) registo.nome = tituloCaso(cliente);
+      const contatoAlt = String(vals[iContatoAlt]||'').trim();
+      if(contatoAlt) registo.contactoAlternativo = contatoAlt;
+      const obs = String(vals[iObs]||'').trim();
+      if(obs && !registo.obsValidacao) registo.obsValidacao = obs;
+      atualizados++;
+    });
+  });
+  if(folhasUsadas === 0){ showToast('Não reconheci este ficheiro como planilha de nomes (esperava colunas OT/CLIENTE).', 'error'); return; }
+  salvar();
+  renderizar();
+  showToast(`${atualizados} Ordens atualizadas com nome/contacto real (${folhasUsadas} folhas). ${ignorados} OTs do ficheiro não estavam na base — ignoradas.`, 'check');
+}
+
+const CAMPOS_LISTA_ESPERA = {
+  operador: 'operador', tipoServico: 'tipo servico', estadoAgendamento: 'estado agendamento',
+  distanciaLinear: 'distancia linear', temDrop: 'tem drop', metragem: 'metragem',
+  equipaNome: 'nome equipa', pop: 'pop', municipio: 'municipio', cco: 'cco',
+  antiguidade: 'antiguidade', acesso: 'acesso', sintoma: 'sintoma', tecnologia: 'tecnologia',
+  segmentoCliente: 'segmento cliente', gestorRc: 'gestor rc',
+  latElemento: 'latitude elemento', lngElemento: 'longitude elemento'
+};
+
+async function processarListaEspera(wb){
+  const ws = wb.worksheets.find(w => normalizarTexto(w.name) === 'lista espera') || wb.worksheets[0];
+  const cab = encontrarCabecalho(ws, vals => vals[0]==='ordem trabalho', 2);
+  if(!cab){ showToast('Não reconheci este ficheiro como Lista Espera (esperava a coluna "ordem trabalho").', 'error'); return; }
+
+  const idxCampo = {};
+  for(const campo in CAMPOS_LISTA_ESPERA){
+    idxCampo[campo] = cab.headers.indexOf(CAMPOS_LISTA_ESPERA[campo]);
+  }
+  const numero = v => { const n = parseFloat(String(v||'').replace(',','.')); return isNaN(n) ? null : n; };
+
+  let atualizados = 0, ignorados = 0;
+  ws.eachRow({includeEmpty:false},(row, i)=>{
+    if(i <= cab.linha) return;
+    const vals = row.values.slice(1).map(celulaTexto);
+    const ordem = String(vals[0]||'').trim();
+    if(!ordem) return;
+    const registo = registos.find(r=>r.ordem===ordem);
+    if(!registo){ ignorados++; return; }
+    for(const campo in idxCampo){
+      const idx = idxCampo[campo];
+      if(idx === -1) continue;
+      const bruto = vals[idx];
+      if(bruto === '' || bruto === null || bruto === undefined) continue;
+      if(campo==='distanciaLinear' || campo==='metragem' || campo==='antiguidade' || campo==='latElemento' || campo==='lngElemento'){
+        registo[campo] = numero(bruto);
+      } else if(campo==='temDrop'){
+        registo[campo] = normalizarTexto(bruto)==='1' || normalizarTexto(bruto)==='true';
+      } else {
+        registo[campo] = String(bruto).trim();
+      }
+    }
+    atualizados++;
+  });
+  salvar();
+  renderizar();
+  showToast(`${atualizados} Ordens enriquecidas com dados da Lista Espera (tecnologia, distância, gestor RC...). ${ignorados} OTs de outros operadores/fora da base — ignoradas.`, 'check');
+}
+
 async function processarLinhas(rows){
   if(rows.length < 2){ showToast('Ficheiro vazio ou inválido.', 'error'); return; }
 
@@ -666,8 +833,16 @@ async function processarLinhas(rows){
   const mapaFinal = new Map(registos.map(r => [r.ordem, r]));
   let adicionados = 0, atualizados = 0;
   novos.forEach(n => {
+    /* Spread por cima do registo existente, não substituição total: os
+       campos de correlação (operador, tecnologia, distância linear,
+       gestor RC, contacto alternativo...) vêm de OUTROS ficheiros
+       (Lista Espera / Nomes) e não fazem parte de `n` — se fizéssemos
+       mapaFinal.set(ordem, n) diretamente, esses campos desapareciam a
+       cada reimportação do ficheiro base. Os campos que `n` TEM sempre
+       (ordem, status, data, horário, etc.) continuam a ganhar — só os
+       campos extra que `n` não conhece é que sobrevivem do registo antigo. */
     if(mapaFinal.has(n.ordem)) atualizados++; else adicionados++;
-    mapaFinal.set(n.ordem, n);
+    mapaFinal.set(n.ordem, { ...(mapaFinal.get(n.ordem) || {}), ...n });
   });
   registos = [...mapaFinal.values()];
   const mantidosIntactos = totalAntes - atualizados;
@@ -697,8 +872,23 @@ async function processarXlsxBuffer(buffer){
   try{
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buffer);
+    if(!wb.worksheets.length){ showToast('Ficheiro Excel sem folhas.', 'error'); return; }
+
+    /* Deteção do tipo de ficheiro pelo nome das folhas / cabeçalho,
+       antes de assumir o formato "registos" habitual. */
+    const temFolhaListaEspera = wb.worksheets.some(w => normalizarTexto(w.name) === 'lista espera');
+    if(temFolhaListaEspera){
+      await processarListaEspera(wb);
+      return;
+    }
+    const temFolhaNomes = wb.worksheets.some(w => encontrarCabecalho(w, vals => vals[0]==='ot' && vals[1]==='cliente', 3));
+    const temFolhaRegistos = wb.worksheets.some(w => normalizarTexto(w.name) === 'confirmações' || normalizarTexto(w.name) === 'confirmacoes');
+    if(temFolhaNomes && !temFolhaRegistos){
+      await processarNomes(wb);
+      return;
+    }
+
     const ws = wb.worksheets[0];
-    if(!ws){ showToast('Ficheiro Excel sem folhas.', 'error'); return; }
     const rows = [];
     ws.eachRow({ includeEmpty:true }, (row, rowNumber)=>{
       const vals = row.values.slice(1).map(celulaTexto);
@@ -784,6 +974,16 @@ function popularFiltroEstados(){
   const estados = [...new Set(registos.map(r => r.estado).filter(Boolean))].sort();
   sel.innerHTML = '<option value="">Todos os estados</option>' +
     estados.map(e => `<option value="${e}">${e}</option>`).join('');
+  sel.value = atual;
+}
+
+function popularFiltroOperadores(){
+  const sel = document.getElementById('operadorFilter');
+  if(!sel) return;
+  const atual = sel.value;
+  const operadores = [...new Set(registos.map(r => r.operador).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">Todos os operadores</option>' +
+    operadores.map(o => `<option value="${o}">${rotuloOperador(o)}</option>`).join('');
   sel.value = atual;
 }
 
@@ -991,36 +1191,41 @@ function bateStatus(r, filtroStatus){
 function bateEstado(r, filtroEstado){
   return !filtroEstado || r.estado === filtroEstado;
 }
+function bateOperador(r, filtroOperador){
+  return !filtroOperador || r.operador === filtroOperador;
+}
 
 function renderizar(){
   popularFiltroDatas();
   popularFiltroEstados();
+  popularFiltroOperadores();
 
   const busca = document.getElementById('searchInput').value.trim().toLowerCase();
   const filtroData = document.getElementById('dataFilter').value;
   const filtroStatus = document.getElementById('statusFilter').value;
   const filtroEstado = document.getElementById('estadoFilter').value;
-  const filtroAtivo = !!(busca || filtroData || filtroStatus || filtroEstado);
+  const filtroOperador = document.getElementById('operadorFilter') ? document.getElementById('operadorFilter').value : '';
+  const filtroAtivo = !!(busca || filtroData || filtroStatus || filtroEstado || filtroOperador);
 
   const tbody = document.getElementById('tbody');
   const filtrados = registos.filter(r =>
-    (!filtroData || r.data === filtroData) && bateStatus(r, filtroStatus) && bateEstado(r, filtroEstado) && bateBusca(r, busca)
+    (!filtroData || r.data === filtroData) && bateStatus(r, filtroStatus) && bateEstado(r, filtroEstado) && bateOperador(r, filtroOperador) && bateBusca(r, busca)
   );
 
   renderStats(filtrados, filtroAtivo);
 
-  /* O gráfico usa busca+status+estado mas ignora o filtro de data (o
-     próprio eixo X é feito de datas) — só aparece quando "Todas as
-     datas" está selecionado, que é a "vista geral". */
+  /* O gráfico usa busca+status+estado+operador mas ignora o filtro de
+     data (o próprio eixo X é feito de datas) — só aparece quando "Todas
+     as datas" está selecionado, que é a "vista geral". */
   if(!filtroData){
-    const baseGrafico = registos.filter(r => bateStatus(r, filtroStatus) && bateEstado(r, filtroEstado) && bateBusca(r, busca));
+    const baseGrafico = registos.filter(r => bateStatus(r, filtroStatus) && bateEstado(r, filtroEstado) && bateOperador(r, filtroOperador) && bateBusca(r, busca));
     renderChart(baseGrafico);
   } else {
     document.getElementById('chartPanel').style.display = 'none';
   }
 
   if(filtrados.length === 0){
-    tbody.innerHTML = `<tr><td colspan="9"><div class="empty">
+    tbody.innerHTML = `<tr><td colspan="10"><div class="empty">
       <svg data-lucide="${registos.length === 0 ? 'inbox' : 'search-x'}"></svg>
       <div class="t">${registos.length === 0 ? 'Ainda sem agendamentos' : 'Nenhum registo encontrado'}</div>
       <div class="d">${registos.length === 0 ? 'Importa um CSV ou Excel para começares.' : 'Ajusta a busca ou os filtros.'}</div>
@@ -1037,9 +1242,10 @@ function renderizar(){
       if(!r.nome) classes.push('sem-nome');
       if(prioridadeEstado(r.estado) === 'espera') classes.push('sem-tecnico');
     }
+    const temDetalhe = r.tecnologia || r.distanciaLinear!=null || r.gestorRc || r.segmentoCliente || r.contactoAlternativo || r.sintoma;
     return `
     <tr class="${classes.join(' ')}" data-ordem="${r.ordem}">
-      <td>${r.ordem}</td>
+      <td>${r.ordem}${temDetalhe?`<button class="detalhe-btn" title="Ver dados correlacionados" onclick="abrirDetalhe('${r.ordem}')"><svg data-lucide="info"></svg></button>`:''}</td>
       <td>
         <select class="cell" onchange="atualizarCampo('${r.ordem}','status',this.value)">
           <option value="" ${!r.status?'selected':''}>— Pendente</option>
@@ -1054,10 +1260,44 @@ function renderizar(){
       <td><input class="cell" type="text" value="${(r.nome||'').replace(/"/g,'&quot;')}" onchange="atualizarCampo('${r.ordem}','nome',this.value)"></td>
       <td>${r.contacto || ''}</td>
       <td>${badgeEstado(r.estado)}</td>
+      <td>${badgeOperador(r.operador)}</td>
       <td style="max-width:220px;font-size:11px;color:var(--ink-faint);">${(r.obsOrigem||'').slice(0,120)}</td>
       <td><input class="cell" type="text" value="${(r.obsValidacao||'').replace(/"/g,'&quot;')}" placeholder="Nota da chamada..." onchange="atualizarCampo('${r.ordem}','obsValidacao',this.value)"></td>
     </tr>`;
   }).join('');
+  icons();
+}
+
+function abrirDetalhe(ordem){
+  const r = registos.find(x=>x.ordem===ordem);
+  if(!r) return;
+  const linha = (rotulo, valor) => valor ? `<div class="detalhe-linha"><span>${rotulo}</span><b>${valor}</b></div>` : '';
+  document.getElementById('detalheBody').innerHTML = `
+    <h3>OT ${r.ordem}</h3>
+    ${linha('Operador', r.operador ? rotuloOperador(r.operador) : '')}
+    ${linha('Tipo de serviço', r.tipoServico)}
+    ${linha('Tecnologia', r.tecnologia)}
+    ${linha('Segmento cliente', r.segmentoCliente)}
+    ${linha('Gestor RC', r.gestorRc)}
+    ${linha('Sintoma', r.sintoma)}
+    ${linha('Distância linear (m)', r.distanciaLinear!=null ? r.distanciaLinear : '')}
+    ${linha('Metragem', r.metragem!=null ? r.metragem : '')}
+    ${linha('Tem drop', r.temDrop!=null ? (r.temDrop?'Sim':'Não') : '')}
+    ${linha('Equipa', r.equipaNome)}
+    ${linha('POP', r.pop)}
+    ${linha('Município', r.municipio)}
+    ${linha('CCO', r.cco)}
+    ${linha('Antiguidade (dias)', r.antiguidade!=null ? r.antiguidade : '')}
+    ${linha('Acesso', r.acesso)}
+    ${linha('Estado agendamento (Lista Espera)', r.estadoAgendamento)}
+    ${linha('Contacto alternativo', r.contactoAlternativo)}
+    ${(r.latElemento!=null && r.lngElemento!=null) ? linha('Coordenadas', `${r.latElemento}, ${r.lngElemento}`) : ''}
+  `;
+  document.getElementById('detalheOverlay').classList.add('show');
+  icons();
+}
+function fecharDetalhe(){
+  document.getElementById('detalheOverlay').classList.remove('show');
 }
 
 window.atualizarCampo = function(ordem, campo, valor){

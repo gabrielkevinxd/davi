@@ -370,6 +370,90 @@ Atribuída 426, Não atribuída 142, Recebida 59, Despachada 58): as 59
 "Atribuída" foi tocada, indicador "a ligar" mostrou exatamente 426,
 "à espera de técnico" mostrou exatamente 200 (142+58).
 
+## Correlação com outras bases — Nomes e Lista Espera multi-operador
+
+Além do formato normal de registos, a app reconhece dois tipos de
+ficheiro de **enriquecimento** — nunca adicionam Ordens novas, só
+preenchem campos extra em Ordens que já existem na base, ligadas pelo
+mesmo número de Ordem/OT. Detetados automaticamente ao importar (sem
+precisar de dizer qual é qual):
+
+### 1. Ficheiro de Nomes ("Confirmação agendamentos")
+
+Planilha com o nome real do cliente e contacto alternativo — geralmente
+uma folha por dia (`02_09`, `03_09`...), colunas `OT / CLIENTE / CONTATO
+/ CONTATO ALTERNATIVO / MORADA / OBS`. A posição do cabeçalho varia por
+folha (nalgumas está na linha 1, noutras na linha 2), por isso a app
+procura nas primeiras linhas em vez de assumir sempre a mesma posição
+(`encontrarCabecalho()`).
+
+Detetado quando **qualquer folha** do workbook tem colunas `OT` e
+`CLIENTE` nas duas primeiras posições — e o workbook não é, ele próprio,
+um export da nossa app (evita conflito com a folha "Confirmações").
+
+Campos atualizados por Ordem já existente:
+- `nome` — sempre sobrescrito (fonte mais fiável que a heurística
+  automática a partir da observação).
+- `contactoAlternativo` — novo campo.
+- `obsValidacao` — só preenchido se ainda estiver vazio (nunca apaga uma
+  nota de chamada já escrita).
+
+### 2. Lista Espera (base rica multi-operador)
+
+Base com uma linha por Ordem, contendo **muito mais informação** do que
+o export da plataforma: `operador` (MEO/VDF/NOS/NPR/NOWO/ONI), `tipo
+servico`, `estado agendamento`, `distancia linear`, `metragem`, `tem
+drop`, `tecnologia`, `segmento cliente`, `gestor rc`, `sintoma`, `pop`,
+`municipio`, `cco`, `antiguidade`, `acesso` (código `FTTH_DST_...`), e
+coordenadas (`latitude/longitude elemento`).
+
+Detetado pela folha chamar-se exatamente **"Lista Espera"**. Todos os
+campos ficam disponíveis no registo, mas só aparecem na interface através
+do botão de detalhe (ⓘ) ao lado da Ordem — cramar 16 colunas novas na
+tabela principal quebraria a responsividade, por isso o essencial
+(Status/Data/Nome/Contacto/Estado/Operador) fica sempre visível, e o
+resto abre num painel só quando precisas.
+
+**Nota sobre "NOS" vs "NPR":** na Lista Espera, `NOS` = acesso
+empresarial e `NPR` = acesso comum — ambos são carteira da **NOS**, só
+divididos por tipo de acesso. A app mostra os dois como "NOS · comum" /
+"NOS · empresarial" (`rotuloOperador()`), nunca como operadores
+diferentes.
+
+**Por que só enriquece, nunca adiciona:** hoje o fluxo de confirmação
+por telefone cobre só OTs da NOS. A Lista Espera trás uma carteira muito
+maior (MEO domina com larga margem) — se a importação criasse uma Ordem
+nova por cada linha da Lista Espera, a tabela ficaria inundada de OTs
+que não fazem parte do trabalho atual. Quando o trabalho passar a
+incluir outros operadores, é aqui que se muda a regra (a função já
+sabe interpretar a carteira toda — só precisa de deixar de ignorar as
+OTs sem correspondência local).
+
+### Correção crítica: enriquecer não podia ser apagado por uma reimportação normal
+
+**Bug encontrado durante a validação:** depois de enriquecer a base com
+Nomes + Lista Espera, reimportar o ficheiro base normal (ex.: um novo
+CSV bruto do dia seguinte) **apagava todos os campos de correlação**
+(operador, tecnologia, distância...) — porque a união por Ordem
+(`mapaFinal.set(ordem, n)`) substituía o registo inteiro pelo objeto
+novo, que nunca teve esses campos.
+
+Corrigido para um *spread* em vez de substituição total:
+```js
+mapaFinal.set(n.ordem, { ...(mapaFinal.get(n.ordem) || {}), ...n });
+```
+Os campos que o novo ficheiro sempre traz (status, data, horário...)
+continuam a ganhar — só os campos que o novo ficheiro *não conhece*
+(operador, tecnologia, gestor RC...) é que sobrevivem do registo antigo.
+
+**Validado** com os 3 ficheiros reais do utilizador (1113 OTs base, 148
+no ficheiro de Nomes, 4061 na Lista Espera): 586 OTs enriquecidas com
+operador/tecnologia/distância (quase todas "NOS · comum", confirmando
+que a app já cobre praticamente toda a carteira NOS atual), 85 nomes
+adicionais recuperados. Reimportar o ficheiro base depois da correlação
+mantém os 586 registos de operador e os 635 nomes intactos — antes da
+correção, isto ia a zero.
+
 ## Validação feita (dados reais, 2026-08-25)
 
 Testado com os ficheiros fornecidos pelo utilizador:
