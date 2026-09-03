@@ -160,6 +160,25 @@
   }
   .chart-toggle button.active{background:var(--accent);color:#fff;}
   .chart-toggle button:not(.active):hover{color:var(--ink);}
+
+  .chart-range{
+    display:inline-flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--border);
+    border-radius:8px;padding:3px 6px;
+  }
+  .chart-range span{color:var(--ink-faint);font-size:11px;}
+  .chart-range input[type=date]{
+    font-family:inherit;font-size:11px;color:var(--ink);background:transparent;border:none;padding:3px 2px;
+    width:112px;color-scheme:dark;
+  }
+  .chart-range input[type=date]:focus{outline:none;}
+  .chart-range button{
+    display:flex;align-items:center;justify-content:center;width:18px;height:18px;border:none;background:none;
+    color:var(--ink-faint);cursor:pointer;border-radius:5px;flex-shrink:0;
+  }
+  .chart-range button:hover{color:var(--danger);background:var(--danger-dim);}
+  .chart-range button svg{width:11px;height:11px;}
+  .chart-range.ativo{border-color:var(--accent);background:var(--accent-dim);}
+
   .chart-scroll{overflow-x:auto;padding-bottom:2px;}
   .bar-svg{display:block;}
   .bar-svg text{font-family:'Inter',sans-serif;fill:var(--ink-faint);}
@@ -326,6 +345,14 @@
         <div class="chart-toggle" id="chartToggle">
           <button type="button" data-modo="dia" class="active">Dia</button>
           <button type="button" data-modo="mes">Mês</button>
+        </div>
+        <div class="chart-range" id="chartRange">
+          <input type="date" id="chartDe" title="De (deixa só este preenchido para uma data específica)">
+          <span>–</span>
+          <input type="date" id="chartAte" title="Até">
+          <button type="button" id="chartRangeLimpar" title="Limpar intervalo — voltar aos dias mais próximos de hoje">
+            <svg data-lucide="x"></svg>
+          </button>
         </div>
         <span class="hint" id="chartAvgHint"></span>
       </div>
@@ -1047,7 +1074,22 @@ function hojeChave(){
   return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
 }
 
-function agruparPorDia(lista){
+/* Intervalo de datas escolhido manualmente pelo utilizador (campos "De"
+   / "Até" no cabeçalho do gráfico). Preencher só um dos dois filtra para
+   essa única data — não é preciso um campo separado para "data
+   específica", os dois campos já cobrem os dois casos. Quando nenhum
+   está preenchido, o gráfico volta ao comportamento automático (dias
+   mais próximos de hoje). */
+function obterRangeGrafico(){
+  const de = document.getElementById('chartDe').value;
+  const ate = document.getElementById('chartAte').value;
+  if(!de && !ate) return null;
+  const inicio = (de || ate).replace(/-/g,'');
+  const fim = (ate || de).replace(/-/g,'');
+  return inicio <= fim ? { inicio, fim } : { inicio: fim, fim: inicio };
+}
+
+function agruparPorDia(lista, range){
   const mapa = {};
   lista.forEach(r=>{
     if(!r.data || r.data === 'SEM DATA') return;
@@ -1057,9 +1099,16 @@ function agruparPorDia(lista){
   });
   const todos = Object.values(mapa).sort((a,b)=> chaveData(a.data).localeCompare(chaveData(b.data)));
 
-  /* Mostra os dias mais próximos de HOJE, não os últimos cronologicamente.
-     Um único agendamento remarcado para daqui a meses não deve "puxar"
-     a janela do gráfico para longe do volume real de trabalho. */
+  if(range){
+    return todos
+      .filter(d => { const k = chaveData(d.data); return k >= range.inicio && k <= range.fim; })
+      .map(d => ({ label: d.data.slice(0,5), tooltip: d.data, total: d.total, confirmados: d.confirmados }));
+  }
+
+  /* Sem intervalo escolhido: mostra os dias mais próximos de HOJE, não os
+     últimos cronologicamente. Um único agendamento remarcado para daqui
+     a meses não deve "puxar" a janela do gráfico para longe do volume
+     real de trabalho. */
   const hoje = hojeChave();
   let janela = todos;
   if(todos.length > 14){
@@ -1072,11 +1121,15 @@ function agruparPorDia(lista){
 }
 
 const MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-function agruparPorMes(lista){
+function agruparPorMes(lista, range){
   const mapa = {};
   lista.forEach(r=>{
     const m = r.data && r.data.match(/(\d{2})\/(\d{2})\/(\d{4})/);
     if(!m) return;
+    if(range){
+      const k = `${m[3]}${m[2]}${m[1]}`;
+      if(k < range.inicio || k > range.fim) return;
+    }
     const chave = `${m[3]}${m[2]}`;
     if(!mapa[chave]) mapa[chave] = { chave, mes:m[2], ano:m[3], total:0, confirmados:0 };
     mapa[chave].total++;
@@ -1094,11 +1147,24 @@ function agruparPorMes(lista){
 function renderChart(lista){
   ultimaBaseGrafico = lista;
   const painel = document.getElementById('chartPanel');
-  const dados = chartModo === 'mes' ? agruparPorMes(lista) : agruparPorDia(lista);
+  const range = obterRangeGrafico();
+  const dados = chartModo === 'mes' ? agruparPorMes(lista, range) : agruparPorDia(lista, range);
 
-  document.getElementById('chartTitle').textContent = chartModo === 'mes' ? 'Tendência por mês' : 'Tendência por dia (mais próximos de hoje)';
+  document.getElementById('chartRange').classList.toggle('ativo', !!range);
+  const rotuloIntervalo = range
+    ? (range.inicio === range.fim
+        ? `dia ${range.inicio.slice(6,8)}/${range.inicio.slice(4,6)}`
+        : `${range.inicio.slice(6,8)}/${range.inicio.slice(4,6)} a ${range.fim.slice(6,8)}/${range.fim.slice(4,6)}`)
+    : null;
+  document.getElementById('chartTitle').textContent = chartModo === 'mes'
+    ? (rotuloIntervalo ? `Tendência por mês (${rotuloIntervalo})` : 'Tendência por mês')
+    : (rotuloIntervalo ? `Tendência por dia (${rotuloIntervalo})` : 'Tendência por dia (mais próximos de hoje)');
 
-  if(dados.length < 2){
+  if(dados.length === 0 || (dados.length < 2 && !range)){
+    /* Sem intervalo escolhido, um único dia não dá tendência para
+       comparar — esconde. Com um intervalo escolhido explicitamente
+       (ex.: uma data específica), mostra na mesma um gráfico de uma só
+       barra: foi um pedido direto do utilizador, não a janela automática. */
     painel.style.display = 'none';
     document.getElementById('chartAvgHint').textContent = '';
     return;
@@ -1164,6 +1230,14 @@ document.getElementById('chartToggle').addEventListener('click', (e)=>{
   document.querySelectorAll('#chartToggle button').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   chartModo = btn.dataset.modo;
+  renderChart(ultimaBaseGrafico);
+});
+
+document.getElementById('chartDe').addEventListener('change', ()=> renderChart(ultimaBaseGrafico));
+document.getElementById('chartAte').addEventListener('change', ()=> renderChart(ultimaBaseGrafico));
+document.getElementById('chartRangeLimpar').addEventListener('click', ()=>{
+  document.getElementById('chartDe').value = '';
+  document.getElementById('chartAte').value = '';
   renderChart(ultimaBaseGrafico);
 });
 

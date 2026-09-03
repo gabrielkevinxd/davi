@@ -137,6 +137,38 @@ Implementado em `agruparPorDia()` / `agruparPorMes()` + `renderChart()`,
 com um `<svg>` gerado diretamente em JS (sem biblioteca externa de
 gráficos).
 
+### Filtro de intervalo (De / Até) — ou uma data específica
+
+Dois campos `<input type="date">` no cabeçalho do gráfico (`#chartDe` /
+`#chartAte`) permitem substituir a janela automática ("14 dias mais
+próximos de hoje") por um intervalo escolhido à mão:
+
+- **Só um dos dois campos preenchido** → filtra para essa **data
+  específica** (não há campo separado para isso — os mesmos dois campos
+  cobrem os dois casos, `obterRangeGrafico()` usa o preenchido como
+  início e fim).
+- **Os dois preenchidos** → filtra para esse intervalo, sem limite de 14
+  colunas (o painel tem scroll horizontal próprio para intervalos
+  largos).
+- Funciona nos dois modos (Dia e Mês) — em Mês, o intervalo filtra os
+  dias antes de agrupar por mês, então "de 15/08 a 15/09" mostra só esses
+  dois meses parciais, não o ano todo.
+- O intervalo aplica-se sobre o mesmo conjunto já filtrado por
+  busca/status/estado/operador (mantém a coerência com o resto do
+  dashboard).
+- Um único dia/mês no resultado normalmente esconderia o gráfico (não há
+  tendência para comparar com 1 ponto), mas **só quando não há intervalo
+  escolhido** — com um intervalo explícito, mostrar 1 barra é o pedido
+  direto do utilizador, por isso continua visível.
+- Botão "✕" ao lado limpa os dois campos e volta ao modo automático. O
+  contentor do intervalo fica com contorno verde (`.chart-range.ativo`)
+  sempre que há um filtro de data ativo, para ser óbvio à primeira vista.
+
+Validado: filtro de dia único (1 barra, título "dia 30/08"), intervalo de
+7 dias (título "29/08 a 05/09", colunas certas), modo Mês com intervalo
+ativo (agrupa só os meses do intervalo), botão limpar a repor o modo
+automático — testado em desktop e mobile (375px), sem erros de consola.
+
 ## Deteção de nome — Title Case além de MAIÚSCULAS
 
 A função `detectarNome()` só reconhecia nomes quando a observação de
