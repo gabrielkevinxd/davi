@@ -1008,18 +1008,18 @@ mark.slot-hl{background:#facc1540;color:#fde68a;border-radius:2px;padding:0 1px;
 <!-- ══════════════ GANTT SEMANAL ══════════════ -->
 <main class="page" id="page-gantt">
   <div class="topbar">
-    <input type="file" id="file-gantt" accept=".xlsx,.xlsb" style="display:none" onchange="importGantt(this)">
-    <input type="file" id="file-gantt-flat" accept=".xlsx" style="display:none" onchange="importGantt(this)">
-    <div class="import-chip" id="chip-gantt" onclick="document.getElementById('file-gantt').click()" title="Planeamento semanal — Planeamento_FF_DROP_W*.xlsb">
+    <input type="file" id="file-gantt" accept=".xlsx,.xlsb,.xls" style="display:none" onchange="importGantt(this)">
+    <input type="file" id="file-gantt-flat" accept=".xlsx,.xlsb,.xls" multiple style="display:none" onchange="importGanttMulti(this)">
+    <div class="import-chip" id="chip-gantt" onclick="document.getElementById('file-gantt').click()" title="Planeamento semanal — Planeamento_FF_DROP_W*.xlsb&#10;(também aceita Export diário .xlsx)">
       <span class="ic-dot"></span>
       <span>Semanal</span>
       <span class="ic-label" id="chip-gantt-lbl">XLSB / XLSX</span>
       <button class="ic-clear" onclick="event.stopPropagation();clearGanttMatrix()">✕</button>
     </div>
-    <div class="import-chip ic-flat" id="chip-gantt-flat" onclick="document.getElementById('file-gantt-flat').click()" title="Export diário — Planeamento FF Drop - Export YYYY-MM-DD.xlsx">
+    <div class="import-chip ic-flat" id="chip-gantt-flat" onclick="document.getElementById('file-gantt-flat').click()" title="Export diário — seleciona 1 ou vários dias de uma vez&#10;(Planeamento FF Drop - Export YYYY-MM-DD.xlsx)">
       <span class="ic-dot"></span>
       <span>Export Diário</span>
-      <span class="ic-label" id="chip-gantt-flat-lbl">+ Adicionar</span>
+      <span class="ic-label" id="chip-gantt-flat-lbl">+ Adicionar dias</span>
       <button class="ic-clear" onclick="event.stopPropagation();clearGanttFlat()">✕</button>
     </div>
     <div class="topbar-sep"></div>
@@ -1780,6 +1780,51 @@ function cellVal(cell){
 
 function cellStr(cell){ return String(cellVal(cell)||'').trim(); }
 
+// Import multiple flat files at once (one per day → builds full week without XLSB)
+async function importGanttMulti(input){
+  const files=Array.from(input.files||[]);
+  if(!files.length) return;
+  if(files.length===1){ importGantt(input); return; }
+
+  toast(`A processar ${files.length} ficheiros...`);
+  const loadedDays=[];
+  let errors=0;
+  for(const file of files){
+    try{
+      const buf=await file.arrayBuffer();
+      const wb=new ExcelJS.Workbook();
+      await wb.xlsx.load(buf);
+      const ws0=wb.worksheets[0];
+      const h1=ws0?cellStr(ws0.getRow(1).getCell(1)):'';
+      if(h1==='Gestor RC'){
+        const {dayKey,dateLabel,teams}=parseGanttFlat(wb,file.name);
+        if(dayKey){
+          if(!ganttSheets[dayKey]) ganttSheets[dayKey]=[];
+          ganttSheets[dayKey]=mergeGanttTeams(ganttSheets[dayKey],teams);
+          loadedDays.push(SHEET_DAY_MAP[dayKey]||dayKey);
+        }
+      } else {
+        // single-file fallback for matrix format inside multi-select
+        toast(`${file.name}: formato semanal — importa pelo chip Semanal`,'err');
+      }
+    }catch(e){ console.error(e); errors++; }
+  }
+
+  if(loadedDays.length){
+    save('swat_gantt_sheets',ganttSheets);
+    const label=loadedDays.join(' · ');
+    updateGanttChipFlat(label);
+    const firstDay=DAY_ORDER.find(d=>ganttSheets[d]&&ganttSheets[d].length);
+    if(!ganttActiveDay&&firstDay) ganttActiveDay=firstDay;
+    buildGanttDayPills(); populateGanttFilters(); renderGantt();
+    toast(`${loadedDays.length} dias importados: ${label}${errors?` (${errors} erro(s))`:''}`, errors?'err':'ok');
+  } else {
+    toast('Nenhum dia reconhecido nos ficheiros','err');
+  }
+  // Reset input so same files can be re-selected
+  input.value='';
+}
+
 // Parse flat-export format: "Planeamento FF Drop - Export YYYY-MM-DD HHmm.xlsx"
 // Cols: Gestor RC | Zona | Equipa — COD | Ordem (OT) | Hora | Tipo Serviço | Elemento (POP) | Notas
 function parseGanttFlat(wb, filename){
@@ -2030,7 +2075,10 @@ function clearGanttFlat(){
   });
   save('swat_gantt_sheets',ganttSheets);
   document.getElementById('chip-gantt-flat').classList.remove('loaded');
-  document.getElementById('chip-gantt-flat-lbl').textContent='+ Adicionar';
+  document.getElementById('chip-gantt-flat-lbl').textContent='+ Adicionar dias';
+  // Reset file input so same files can be re-imported
+  const fi=document.getElementById('file-gantt-flat');
+  if(fi) fi.value='';
   updateGanttEmpty();
   buildGanttDayPills(); renderGantt();
 }
@@ -2041,7 +2089,7 @@ function clearGantt(){
   document.getElementById('chip-gantt').classList.remove('loaded');
   document.getElementById('chip-gantt-lbl').textContent='XLSB / XLSX';
   document.getElementById('chip-gantt-flat').classList.remove('loaded');
-  document.getElementById('chip-gantt-flat-lbl').textContent='+ Adicionar';
+  document.getElementById('chip-gantt-flat-lbl').textContent='+ Adicionar dias';
   document.getElementById('gantt-empty').style.display='';
   document.getElementById('gantt-body').style.display='none';
   setCt('gantt',0);
