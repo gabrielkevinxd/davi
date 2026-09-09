@@ -1107,7 +1107,7 @@ mark.slot-hl{background:#facc1540;color:#fde68a;border-radius:2px;padding:0 1px;
     </div>
     <div class="map-hour-wrap">
       <span class="map-hour-label">Hora</span>
-      <input type="range" id="map-hour-slider" min="0" max="10" value="0" oninput="onHourSlide()">
+      <input type="range" id="map-hour-slider" min="0" max="11" value="1" oninput="onHourSlide()">
       <span id="map-hour-val">9h</span>
     </div>
   </div>
@@ -1216,7 +1216,16 @@ let agendaRows  = parse('swat_agenda')  || [];
 let esperaRows  = parse('swat_espera')  || [];
 let equipasRows = parse('swat_equipas') || [];
 let otStatus    = parse('swat_ots')     || {};
-let ganttSheets = parse('swat_gantt_sheets') || {};  // {sheetName: [{equipa,gestor,zona,slots[11]},...]}
+let ganttSheets = (()=>{
+  const raw=parse('swat_gantt_sheets');
+  if(!raw) return {};
+  // Migrate legacy 11-slot teams to 12-slot (8h column added to front)
+  Object.values(raw).forEach(teams=>{
+    if(!Array.isArray(teams)) return;
+    teams.forEach(t=>{ if(Array.isArray(t.slots)&&t.slots.length===11) t.slots=[{ot:'',tipo:'',pop:'',obs:''},...t.slots]; });
+  });
+  return raw;
+})();  // {sheetName: [{equipa,gestor,zona,slots[12]},...]}
 let ganttEdits  = parse('swat_gantt_edits')  || {};  // {sheetName: {key: {tipo,ot,pop,obs}}}
 let ganttActiveDay = '';
 let ganttModalCtx  = null; // {sheetName, teamIdx, slotIdx}
@@ -1709,8 +1718,8 @@ async function exportLogs(){
 // GANTT SEMANAL
 // ══════════════════════════════════════════════
 
-const GANTT_HOURS = ['9h','10h','11h','12h','13h','14h','15h','16h','17h','18h','19h'];
-const GANTT_COL_START = 4; // col index E = index 4 (0-based)
+const GANTT_HOURS = ['8h','9h','10h','11h','12h','13h','14h','15h','16h','17h','18h','19h'];
+const GANTT_COL_START = 4; // col index E = index 4 (0-based), maps to 9h = GANTT_HOURS[1]
 
 const SHEET_DAY_MAP = {
   'SegundaFeira':'Seg','TercaFeira':'Ter','QuartaFeira':'Qua',
@@ -1757,6 +1766,77 @@ function cellVal(cell){
 
 function cellStr(cell){ return String(cellVal(cell)||'').trim(); }
 
+// Parse flat-export format: "Planeamento FF Drop - Export YYYY-MM-DD HHmm.xlsx"
+// Cols: Gestor RC | Zona | Equipa — COD | Ordem (OT) | Hora | Tipo Serviço | Elemento (POP) | Notas
+function parseGanttFlat(wb, filename){
+  const NSLOTS=GANTT_HOURS.length;
+  const HOUR_OFFSET=parseInt(GANTT_HOURS[0]); // 8
+
+  // Detect day from filename date (YYYY-MM-DD)
+  const dateMatch=filename.match(/(\d{4}-\d{2}-\d{2})/);
+  let dayKey=null, dateLabel='';
+  if(dateMatch){
+    const d=new Date(dateMatch[1]+'T12:00:00Z');
+    const WD=[null,'SegundaFeira','TercaFeira','QuartaFeira','QuintaFeira','SextaFeira','Sabado'];
+    dayKey=WD[d.getUTCDay()]||null;
+    dateLabel=dateMatch[1];
+  }
+  if(!dayKey){
+    const d=new Date();
+    const WD=[null,'SegundaFeira','TercaFeira','QuartaFeira','QuintaFeira','SextaFeira','Sabado'];
+    dayKey=WD[d.getDay()]||null;
+    dateLabel=new Date().toISOString().slice(0,10);
+  }
+
+  const ws=wb.worksheets[0];
+  const teamsMap={};
+
+  ws.eachRow((row,ri)=>{
+    if(ri===1) return; // header
+    const gestor=cellStr(row.getCell(1));
+    const zona=cellStr(row.getCell(2));
+    const equipaRaw=cellStr(row.getCell(3));
+    if(!equipaRaw) return;
+
+    // "Name — CODE" separator
+    const parts=equipaRaw.split(' — ');
+    const equipaNome=(parts[0]||equipaRaw).trim();
+    const equipaCod=(parts[1]||'').trim();
+
+    const otRaw=row.getCell(4).value;
+    const ot=otRaw!=null?String(otRaw).trim():'';
+    const tipo=cellStr(row.getCell(6));
+    const pop=cellStr(row.getCell(7));
+    const obs=cellStr(row.getCell(8));
+
+    // Parse hour from ExcelJS Date (stored as UTC midnight + time offset)
+    let hour=-1;
+    const hv=row.getCell(5).value;
+    if(hv instanceof Date) hour=hv.getUTCHours();
+    else if(hv){ const m=String(hv).match(/T(\d{2}):/); if(m) hour=parseInt(m[1]); }
+    const slotIdx=hour-HOUR_OFFSET;
+    if(slotIdx<0||slotIdx>=NSLOTS) return;
+
+    const key=(equipaCod||equipaNome).toUpperCase();
+    if(!teamsMap[key]){
+      teamsMap[key]={
+        gestor,zona,zonaAtua:zona,equipaNome,equipaCod,
+        nInst:0,nSup:0,nAdic:0,fechado:false,_source:'flat',
+        slots:Array.from({length:NSLOTS},()=>({ot:'',tipo:'',pop:'',obs:''}))
+      };
+    }
+    const team=teamsMap[key];
+    if(!team.slots[slotIdx].ot&&!team.slots[slotIdx].tipo)
+      team.slots[slotIdx]={ot,tipo,pop,obs};
+    const tu=tipo.toUpperCase();
+    if(tu.includes('INST')) team.nInst++;
+    else if(tu.includes('SUP')) team.nSup++;
+    else if(tu.includes('ADI')) team.nAdic++;
+  });
+
+  return {dayKey,dateLabel,teams:Object.values(teamsMap)};
+}
+
 async function importGantt(input){
   const file=input.files[0]; if(!file) return;
   toast('A carregar planeamento...');
@@ -1765,70 +1845,100 @@ async function importGantt(input){
     const wb=new ExcelJS.Workbook();
     await wb.xlsx.load(buf);
 
-    const parsed={};
-    wb.eachSheet(ws=>{
-      const name=ws.name||'';
-      const dayKey=Object.keys(SHEET_DAY_MAP).find(k=>name.includes(k));
-      if(!dayKey) return;
+    // Detect format by first cell of first sheet
+    const ws0=wb.worksheets[0];
+    const h1=ws0?cellStr(ws0.getRow(1).getCell(1)):'';
 
-      const teams=[];
-      // Data starts at row 5 (1-indexed), groups of 4
-      const maxRow=ws.rowCount||500;
-      let r=5;
-      while(r+3<=maxRow){
-        const row0=ws.getRow(r);   // OT / counts
-        const row1=ws.getRow(r+1); // tipo
-        const row2=ws.getRow(r+2); // POP
-        const row3=ws.getRow(r+3); // obs / notes
+    if(h1==='Gestor RC'){
+      // ── Flat export format (daily, one row per OT) ──
+      const {dayKey,dateLabel,teams}=parseGanttFlat(wb,file.name);
+      if(!dayKey){ toast('Não foi possível determinar o dia do ficheiro','err'); return; }
 
-        const equipaRaw=cellStr(row0.getCell(2)); // col B
-        if(!equipaRaw){ r+=4; continue; }
+      // Merge: keep existing matrix teams, add flat teams not already present
+      if(!ganttSheets[dayKey]) ganttSheets[dayKey]=[];
+      const existingCods=new Set(ganttSheets[dayKey].map(t=>(t.equipaCod||t.equipaNome).toUpperCase()));
+      const added=teams.filter(t=>!existingCods.has((t.equipaCod||t.equipaNome).toUpperCase()));
+      const replaced=teams.filter(t=>existingCods.has((t.equipaCod||t.equipaNome).toUpperCase()));
+      // Update slots of teams already present (fill empty slots from flat data)
+      ganttSheets[dayKey].forEach(existing=>{
+        const match=replaced.find(t=>(t.equipaCod||t.equipaNome).toUpperCase()===(existing.equipaCod||existing.equipaNome).toUpperCase());
+        if(!match) return;
+        match.slots.forEach((s,i)=>{
+          if(s.ot&&!existing.slots[i]?.ot) existing.slots[i]=s;
+        });
+      });
+      ganttSheets[dayKey]=[...ganttSheets[dayKey],...added];
 
-        // Extract equipa code (after newline)
-        const equipaLines=equipaRaw.split(/\n/);
-        const equipaNome=equipaLines[0]||equipaRaw;
-        const equipaCod=equipaLines[1]||'';
+      save('swat_gantt_sheets',ganttSheets);
+      ganttEdits={}; save('swat_gantt_edits',ganttEdits);
+      ganttActiveDay=dayKey;
+      updateGanttChip(`Export ${dateLabel} (${SHEET_DAY_MAP[dayKey]||dayKey})`);
+      buildGanttDayPills(); populateGanttFilters(); renderGantt();
+      toast(`Export diário importado — ${teams.length} equipas adicionadas/atualizadas (${SHEET_DAY_MAP[dayKey]||dayKey})`);
+    } else {
+      // ── Matrix grid format (weekly XLSB/XLSX) ──
+      const parsed={};
+      wb.eachSheet(ws=>{
+        const name=ws.name||'';
+        const dayKey=Object.keys(SHEET_DAY_MAP).find(k=>name.includes(k));
+        if(!dayKey) return;
 
-        const gestor=cellStr(row0.getCell(1)); // col A
-        const zona=cellStr(row0.getCell(3));   // col C
-        const zonaAtua=cellStr(row0.getCell(4));// col D
+        const teams=[];
+        // Data starts at row 5 (1-indexed), groups of 4
+        const maxRow=ws.rowCount||500;
+        let r=5;
+        while(r+3<=maxRow){
+          const row0=ws.getRow(r);   // OT / counts
+          const row1=ws.getRow(r+1); // tipo
+          const row2=ws.getRow(r+2); // POP
+          const row3=ws.getRow(r+3); // obs / notes
 
-        const nInst=cellVal(row0.getCell(16)); // col P
-        const nSup =cellVal(row0.getCell(17)); // col Q
-        const nAdic=cellVal(row0.getCell(18)); // col R
-        const fechado=cellVal(row0.getCell(20)); // col T
+          const equipaRaw=cellStr(row0.getCell(2)); // col B
+          if(!equipaRaw){ r+=4; continue; }
 
-        const slots=[];
-        for(let s=0;s<11;s++){
-          const ci=GANTT_COL_START+s+1; // 1-indexed
-          slots.push({
-            ot  : cellStr(row0.getCell(ci)),
-            tipo: cellStr(row1.getCell(ci)),
-            pop : cellStr(row2.getCell(ci)),
-            obs : cellStr(row3.getCell(ci)),
-          });
+          // Extract equipa code (after newline)
+          const equipaLines=equipaRaw.split(/\n/);
+          const equipaNome=equipaLines[0]||equipaRaw;
+          const equipaCod=equipaLines[1]||'';
+
+          const gestor=cellStr(row0.getCell(1)); // col A
+          const zona=cellStr(row0.getCell(3));   // col C
+          const zonaAtua=cellStr(row0.getCell(4));// col D
+
+          const nInst=cellVal(row0.getCell(16)); // col P
+          const nSup =cellVal(row0.getCell(17)); // col Q
+          const nAdic=cellVal(row0.getCell(18)); // col R
+          const fechado=cellVal(row0.getCell(20)); // col T
+
+          // slot[0]=8h (empty for matrix format), slot[1..11]=9h..19h from Excel cols E-O
+          const slots=[{ot:'',tipo:'',pop:'',obs:''}];
+          for(let s=0;s<11;s++){
+            const ci=GANTT_COL_START+s+1; // 1-indexed
+            slots.push({
+              ot  : cellStr(row0.getCell(ci)),
+              tipo: cellStr(row1.getCell(ci)),
+              pop : cellStr(row2.getCell(ci)),
+              obs : cellStr(row3.getCell(ci)),
+            });
+          }
+
+          teams.push({gestor,equipaNome,equipaCod,zona,zonaAtua,nInst:+nInst||0,nSup:+nSup||0,nAdic:+nAdic||0,fechado:!!fechado,slots});
+          r+=4;
         }
+        if(teams.length) parsed[dayKey]=teams;
+      });
 
-        teams.push({gestor,equipaNome,equipaCod,zona,zonaAtua,nInst:+nInst||0,nSup:+nSup||0,nAdic:+nAdic||0,fechado:!!fechado,slots});
-        r+=4;
-      }
-      if(teams.length) parsed[dayKey]=teams;
-    });
+      ganttSheets=parsed;
+      save('swat_gantt_sheets',ganttSheets);
+      ganttEdits={}; save('swat_gantt_edits',ganttEdits);
 
-    ganttSheets=parsed;
-    save('swat_gantt_sheets',ganttSheets);
-    ganttEdits={};
-    save('swat_gantt_edits',ganttEdits);
+      const firstDay=DAY_ORDER.find(d=>ganttSheets[d]&&ganttSheets[d].length);
+      ganttActiveDay=firstDay||'';
 
-    // default to first available day
-    const firstDay=DAY_ORDER.find(d=>ganttSheets[d]&&ganttSheets[d].length);
-    ganttActiveDay=firstDay||'';
-
-    updateGanttChip(file.name);
-    buildGanttDayPills();
-    populateGanttFilters();
-    renderGantt();
-    toast(`Planeamento importado — ${Object.keys(parsed).length} dias`);
+      updateGanttChip(file.name);
+      buildGanttDayPills(); populateGanttFilters(); renderGantt();
+      toast(`Planeamento importado — ${Object.keys(parsed).length} dias`);
+    }
   }catch(e){
     console.error(e);
     toast('Erro ao carregar ficheiro: '+e.message,'err');
@@ -2297,7 +2407,7 @@ let mapLayers  = {          // active state per toggle
   equipas    : true,
   rede       : true,
 };
-let mapHourIdx = 0;         // 0-10 → 9h-19h
+let mapHourIdx = 1;         // 0-11 → 8h-19h (default 1 = 9h)
 
 // Leaflet layer groups (created after map init)
 let lgInst  = null;

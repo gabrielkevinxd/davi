@@ -27,7 +27,8 @@ Centraliza numa só interface:
 | `Piloto Agenda Diária RC.xlsx` | Tab Painel do Dia |
 | `Lista Espera CGO.xlsx` | Tab Lista de Espera |
 | `Dados das equipas RC.xlsx` | Tab Equipas |
-| `Planeamento_FF_DROP_W*.xlsb` ou `.xlsx` | Tab Gantt Semanal |
+| `Planeamento_FF_DROP_W*.xlsb` ou `.xlsx` | Tab Gantt Semanal — formato semanal (grid 4 linhas × 11 colunas) |
+| `Planeamento FF Drop - Export YYYY-MM-DD*.xlsx` | Tab Gantt Semanal — formato diário flat (1 linha por OT, enviado pelo gestor manualmente) |
 | `norte.kmz` / `centro.kmz` / `sul.kmz` (rede FO) | Tab Mapa (opcional — desbloqueia coordenadas) |
 
 ---
@@ -47,6 +48,9 @@ Centraliza numa só interface:
 
 - **4 linhas por equipa**: OT / Tipo de serviço / POP / Observações (estrutura real do Excel)
 - **Cores por operador**: MEO=azul · VDF=vermelho · NPR=verde · NOS=roxo · NOWO=laranja
+- **Duplo formato de importação**: aceita tanto o XLSB semanal (grid 4 linhas × 11 colunas, 9h–19h) como o Excel flat diário exportado pelo gestor (1 linha por OT, 8h–17h+) — detetado automaticamente pelo cabeçalho
+- **Merge inteligente**: ao importar o formato flat, os dados são fundidos com o planeamento semanal já carregado (slots vazios preenchidos, equipas novas adicionadas)
+- **Horário 8h–19h**: suporte para equipas que começam às 8h (12 colunas de hora, vs 11 antes)
 - **Pesquisa rápida**: pesquisa por POP, OT, equipa, gestor, VDF/MEO, cliente, telemóvel — filtra em tempo real com highlight amarelo nos slots correspondentes
 - **Correlação Lista Espera**: hover num slot → tooltip com nome do cliente + tlm; clique → modal com dados completos
 - **Edição de slots**: clica → edita tipo, OT, POP, obs → guardado em localStorage
