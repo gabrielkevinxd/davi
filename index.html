@@ -320,9 +320,21 @@
       <div class="sub">Importa o export da plataforma, confirma por telefone, exporta atualizado.</div>
       <div class="privacy-pill"><svg data-lucide="shield-check"></svg> Dados guardados apenas neste dispositivo — nada é enviado a um servidor</div>
     </div>
-    <button class="theme-toggle" id="themeToggle" title="Alternar tema" aria-label="Alternar tema">
-      <svg data-lucide="moon"></svg>
-    </button>
+    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+      <a href="swat/index.html"
+         style="display:inline-flex;align-items:center;gap:6px;padding:7px 14px;
+                background:var(--accent-dim);color:var(--accent-strong);
+                border:1px solid var(--accent);border-radius:9px;
+                font-family:'Sora',sans-serif;font-size:12px;font-weight:700;
+                text-decoration:none;letter-spacing:.02em;transition:.15s;white-space:nowrap"
+         onmouseover="this.style.background='var(--accent)';this.style.color='#fff'"
+         onmouseout="this.style.background='var(--accent-dim)';this.style.color='var(--accent-strong)'">
+        ⚡ SWAT — Planeamento ETS
+      </a>
+      <button class="theme-toggle" id="themeToggle" title="Alternar tema" aria-label="Alternar tema">
+        <svg data-lucide="moon"></svg>
+      </button>
+    </div>
   </header>
 
   <div class="toolbar">
