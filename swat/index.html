@@ -182,6 +182,9 @@ a{color:inherit;text-decoration:none}
   line-height:1;background:none;border:none;cursor:pointer;
 }
 .import-chip .ic-clear:hover{color:var(--red)}
+.import-chip.ic-flat.loaded{border-color:var(--accent);color:var(--accent-strong);background:var(--accent-dim)}
+.import-chip.ic-flat.loaded .ic-dot{background:var(--accent)}
+.import-chip.ic-flat.loaded .ic-label{color:var(--accent-strong)}
 
 .topbar-sep{width:1px;height:18px;background:var(--line);flex-shrink:0}
 .topbar-spacer{flex:1;min-width:8px}
@@ -1006,11 +1009,18 @@ mark.slot-hl{background:#facc1540;color:#fde68a;border-radius:2px;padding:0 1px;
 <main class="page" id="page-gantt">
   <div class="topbar">
     <input type="file" id="file-gantt" accept=".xlsx,.xlsb" style="display:none" onchange="importGantt(this)">
-    <div class="import-chip" id="chip-gantt" onclick="document.getElementById('file-gantt').click()">
+    <input type="file" id="file-gantt-flat" accept=".xlsx" style="display:none" onchange="importGantt(this)">
+    <div class="import-chip" id="chip-gantt" onclick="document.getElementById('file-gantt').click()" title="Planeamento semanal — Planeamento_FF_DROP_W*.xlsb">
       <span class="ic-dot"></span>
-      <span>Planeamento Semanal</span>
-      <span class="ic-label" id="chip-gantt-lbl">Importar XLSB / XLSX</span>
-      <button class="ic-clear" onclick="event.stopPropagation();clearGantt()">✕</button>
+      <span>Semanal</span>
+      <span class="ic-label" id="chip-gantt-lbl">XLSB / XLSX</span>
+      <button class="ic-clear" onclick="event.stopPropagation();clearGanttMatrix()">✕</button>
+    </div>
+    <div class="import-chip ic-flat" id="chip-gantt-flat" onclick="document.getElementById('file-gantt-flat').click()" title="Export diário — Planeamento FF Drop - Export YYYY-MM-DD.xlsx">
+      <span class="ic-dot"></span>
+      <span>Export Diário</span>
+      <span class="ic-label" id="chip-gantt-flat-lbl">+ Adicionar</span>
+      <button class="ic-clear" onclick="event.stopPropagation();clearGanttFlat()">✕</button>
     </div>
     <div class="topbar-sep"></div>
     <div class="filter-row" id="gantt-filter-row" style="flex-wrap:wrap;gap:8px">
@@ -1220,9 +1230,13 @@ let ganttSheets = (()=>{
   const raw=parse('swat_gantt_sheets');
   if(!raw) return {};
   // Migrate legacy 11-slot teams to 12-slot (8h column added to front)
+  // Also tag legacy teams without _source as 'matrix'
   Object.values(raw).forEach(teams=>{
     if(!Array.isArray(teams)) return;
-    teams.forEach(t=>{ if(Array.isArray(t.slots)&&t.slots.length===11) t.slots=[{ot:'',tipo:'',pop:'',obs:''},...t.slots]; });
+    teams.forEach(t=>{
+      if(Array.isArray(t.slots)&&t.slots.length===11) t.slots=[{ot:'',tipo:'',pop:'',obs:''},...t.slots];
+      if(!t._source) t._source='matrix';
+    });
   });
   return raw;
 })();  // {sheetName: [{equipa,gestor,zona,slots[12]},...]}
@@ -1854,29 +1868,24 @@ async function importGantt(input){
       const {dayKey,dateLabel,teams}=parseGanttFlat(wb,file.name);
       if(!dayKey){ toast('Não foi possível determinar o dia do ficheiro','err'); return; }
 
-      // Merge: keep existing matrix teams, add flat teams not already present
+      // Merge flat teams into existing ganttSheets (preserves matrix data)
       if(!ganttSheets[dayKey]) ganttSheets[dayKey]=[];
-      const existingCods=new Set(ganttSheets[dayKey].map(t=>(t.equipaCod||t.equipaNome).toUpperCase()));
-      const added=teams.filter(t=>!existingCods.has((t.equipaCod||t.equipaNome).toUpperCase()));
-      const replaced=teams.filter(t=>existingCods.has((t.equipaCod||t.equipaNome).toUpperCase()));
-      // Update slots of teams already present (fill empty slots from flat data)
-      ganttSheets[dayKey].forEach(existing=>{
-        const match=replaced.find(t=>(t.equipaCod||t.equipaNome).toUpperCase()===(existing.equipaCod||existing.equipaNome).toUpperCase());
-        if(!match) return;
-        match.slots.forEach((s,i)=>{
-          if(s.ot&&!existing.slots[i]?.ot) existing.slots[i]=s;
-        });
-      });
-      ganttSheets[dayKey]=[...ganttSheets[dayKey],...added];
+      ganttSheets[dayKey]=mergeGanttTeams(ganttSheets[dayKey], teams);
 
       save('swat_gantt_sheets',ganttSheets);
-      ganttEdits={}; save('swat_gantt_edits',ganttEdits);
       ganttActiveDay=dayKey;
-      updateGanttChip(`Export ${dateLabel} (${SHEET_DAY_MAP[dayKey]||dayKey})`);
+      const label=`${dateLabel} (${SHEET_DAY_MAP[dayKey]||dayKey})`;
+      updateGanttChipFlat(label);
       buildGanttDayPills(); populateGanttFilters(); renderGantt();
-      toast(`Export diário importado — ${teams.length} equipas adicionadas/atualizadas (${SHEET_DAY_MAP[dayKey]||dayKey})`);
+      toast(`Export diário fundido — ${teams.length} equipas · ${label}`);
     } else {
       // ── Matrix grid format (weekly XLSB/XLSX) ──
+      // Save existing flat-sourced teams before replacing matrix data
+      const flatBackup={};
+      DAY_ORDER.forEach(k=>{
+        if(ganttSheets[k]) flatBackup[k]=ganttSheets[k].filter(t=>t._source==='flat');
+      });
+
       const parsed={};
       wb.eachSheet(ws=>{
         const name=ws.name||'';
@@ -1884,36 +1893,34 @@ async function importGantt(input){
         if(!dayKey) return;
 
         const teams=[];
-        // Data starts at row 5 (1-indexed), groups of 4
         const maxRow=ws.rowCount||500;
         let r=5;
         while(r+3<=maxRow){
-          const row0=ws.getRow(r);   // OT / counts
-          const row1=ws.getRow(r+1); // tipo
-          const row2=ws.getRow(r+2); // POP
-          const row3=ws.getRow(r+3); // obs / notes
+          const row0=ws.getRow(r);
+          const row1=ws.getRow(r+1);
+          const row2=ws.getRow(r+2);
+          const row3=ws.getRow(r+3);
 
-          const equipaRaw=cellStr(row0.getCell(2)); // col B
+          const equipaRaw=cellStr(row0.getCell(2));
           if(!equipaRaw){ r+=4; continue; }
 
-          // Extract equipa code (after newline)
           const equipaLines=equipaRaw.split(/\n/);
           const equipaNome=equipaLines[0]||equipaRaw;
           const equipaCod=equipaLines[1]||'';
 
-          const gestor=cellStr(row0.getCell(1)); // col A
-          const zona=cellStr(row0.getCell(3));   // col C
-          const zonaAtua=cellStr(row0.getCell(4));// col D
+          const gestor=cellStr(row0.getCell(1));
+          const zona=cellStr(row0.getCell(3));
+          const zonaAtua=cellStr(row0.getCell(4));
 
-          const nInst=cellVal(row0.getCell(16)); // col P
-          const nSup =cellVal(row0.getCell(17)); // col Q
-          const nAdic=cellVal(row0.getCell(18)); // col R
-          const fechado=cellVal(row0.getCell(20)); // col T
+          const nInst=cellVal(row0.getCell(16));
+          const nSup =cellVal(row0.getCell(17));
+          const nAdic=cellVal(row0.getCell(18));
+          const fechado=cellVal(row0.getCell(20));
 
           // slot[0]=8h (empty for matrix format), slot[1..11]=9h..19h from Excel cols E-O
           const slots=[{ot:'',tipo:'',pop:'',obs:''}];
           for(let s=0;s<11;s++){
-            const ci=GANTT_COL_START+s+1; // 1-indexed
+            const ci=GANTT_COL_START+s+1;
             slots.push({
               ot  : cellStr(row0.getCell(ci)),
               tipo: cellStr(row1.getCell(ci)),
@@ -1922,22 +1929,32 @@ async function importGantt(input){
             });
           }
 
-          teams.push({gestor,equipaNome,equipaCod,zona,zonaAtua,nInst:+nInst||0,nSup:+nSup||0,nAdic:+nAdic||0,fechado:!!fechado,slots});
+          teams.push({gestor,equipaNome,equipaCod,zona,zonaAtua,
+            nInst:+nInst||0,nSup:+nSup||0,nAdic:+nAdic||0,
+            fechado:!!fechado,_source:'matrix',slots});
           r+=4;
         }
         if(teams.length) parsed[dayKey]=teams;
       });
 
+      // Replace matrix data, then merge back flat-backup teams (fill empty slots + add flat-only)
       ganttSheets=parsed;
+      DAY_ORDER.forEach(k=>{
+        const flatTeams=flatBackup[k]||[];
+        if(!flatTeams.length) return;
+        if(!ganttSheets[k]) ganttSheets[k]=[];
+        ganttSheets[k]=mergeGanttTeams(ganttSheets[k], flatTeams);
+      });
+
       save('swat_gantt_sheets',ganttSheets);
       ganttEdits={}; save('swat_gantt_edits',ganttEdits);
 
       const firstDay=DAY_ORDER.find(d=>ganttSheets[d]&&ganttSheets[d].length);
       ganttActiveDay=firstDay||'';
 
-      updateGanttChip(file.name);
+      updateGanttChipMatrix(file.name);
       buildGanttDayPills(); populateGanttFilters(); renderGantt();
-      toast(`Planeamento importado — ${Object.keys(parsed).length} dias`);
+      toast(`Planeamento semanal importado — ${Object.keys(parsed).length} dias`);
     }
   }catch(e){
     console.error(e);
@@ -1945,17 +1962,86 @@ async function importGantt(input){
   }
 }
 
-function updateGanttChip(fname){
+// Merge helper: merge incomingTeams into existing (incoming wins if slot has data)
+function mergeGanttTeams(existing, incoming){
+  const existMap={};
+  existing.forEach((t,i)=>{ existMap[(t.equipaCod||t.equipaNome).toUpperCase()]=i; });
+  incoming.forEach(nt=>{
+    const key=(nt.equipaCod||nt.equipaNome).toUpperCase();
+    if(existMap[key]!==undefined){
+      const et=existing[existMap[key]];
+      nt.slots.forEach((ns,si)=>{
+        if((ns.ot||ns.tipo)&&!et.slots[si]?.ot) et.slots[si]=ns;
+      });
+      // Update metadata if incoming is more complete
+      if(nt.nInst) et.nInst=nt.nInst;
+      if(nt.nSup)  et.nSup=nt.nSup;
+      if(nt.nAdic) et.nAdic=nt.nAdic;
+    } else {
+      existing.push(nt);
+      existMap[key]=existing.length-1;
+    }
+  });
+  return existing;
+}
+
+function updateGanttChipMatrix(fname){
   const chip=document.getElementById('chip-gantt');
   chip.classList.add('loaded');
   document.getElementById('chip-gantt-lbl').textContent=fname;
+}
+
+function updateGanttChipFlat(label){
+  const chip=document.getElementById('chip-gantt-flat');
+  chip.classList.add('loaded');
+  document.getElementById('chip-gantt-flat-lbl').textContent=label;
+}
+
+function ganttHasAnyData(){
+  return DAY_ORDER.some(k=>ganttSheets[k]&&ganttSheets[k].length);
+}
+
+function updateGanttEmpty(){
+  const hasData=ganttHasAnyData();
+  document.getElementById('gantt-empty').style.display=hasData?'none':'';
+  document.getElementById('gantt-body').style.display=hasData?'':'none';
+  if(!hasData) setCt('gantt',0);
+}
+
+function clearGanttMatrix(){
+  // Remove matrix-sourced teams; keep flat-only teams
+  DAY_ORDER.forEach(k=>{
+    if(ganttSheets[k]) ganttSheets[k]=ganttSheets[k].filter(t=>t._source==='flat');
+    if(ganttSheets[k]&&!ganttSheets[k].length) delete ganttSheets[k];
+  });
+  save('swat_gantt_sheets',ganttSheets);
+  ganttEdits={}; save('swat_gantt_edits',ganttEdits);
+  document.getElementById('chip-gantt').classList.remove('loaded');
+  document.getElementById('chip-gantt-lbl').textContent='XLSB / XLSX';
+  updateGanttEmpty();
+  buildGanttDayPills(); renderGantt();
+}
+
+function clearGanttFlat(){
+  // Remove flat-sourced teams; keep matrix teams
+  DAY_ORDER.forEach(k=>{
+    if(ganttSheets[k]) ganttSheets[k]=ganttSheets[k].filter(t=>t._source!=='flat');
+    if(ganttSheets[k]&&!ganttSheets[k].length) delete ganttSheets[k];
+  });
+  save('swat_gantt_sheets',ganttSheets);
+  document.getElementById('chip-gantt-flat').classList.remove('loaded');
+  document.getElementById('chip-gantt-flat-lbl').textContent='+ Adicionar';
+  updateGanttEmpty();
+  buildGanttDayPills(); renderGantt();
 }
 
 function clearGantt(){
   ganttSheets={}; ganttEdits={};
   save('swat_gantt_sheets',null); save('swat_gantt_edits',null);
   document.getElementById('chip-gantt').classList.remove('loaded');
-  document.getElementById('chip-gantt-lbl').textContent='Importar XLSB / XLSX';
+  document.getElementById('chip-gantt-lbl').textContent='XLSB / XLSX';
+  document.getElementById('chip-gantt-flat').classList.remove('loaded');
+  document.getElementById('chip-gantt-flat-lbl').textContent='+ Adicionar';
   document.getElementById('gantt-empty').style.display='';
   document.getElementById('gantt-body').style.display='none';
   setCt('gantt',0);
@@ -2672,8 +2758,17 @@ document.getElementById('gantt-modal').addEventListener('click',e=>{ if(e.target
   const firstDay=DAY_ORDER.find(d=>ganttSheets[d]&&ganttSheets[d].length);
   if(!firstDay) return;
   ganttActiveDay=firstDay;
-  document.getElementById('chip-gantt-lbl').textContent='Planeamento carregado';
-  document.getElementById('chip-gantt').classList.add('loaded');
+  // Restore chip states based on what's in localStorage
+  const hasMatrix=DAY_ORDER.some(k=>(ganttSheets[k]||[]).some(t=>t._source!=='flat'));
+  const hasFlat=DAY_ORDER.some(k=>(ganttSheets[k]||[]).some(t=>t._source==='flat'));
+  if(hasMatrix){
+    document.getElementById('chip-gantt-lbl').textContent='Planeamento carregado';
+    document.getElementById('chip-gantt').classList.add('loaded');
+  }
+  if(hasFlat){
+    document.getElementById('chip-gantt-flat-lbl').textContent='Export carregado';
+    document.getElementById('chip-gantt-flat').classList.add('loaded');
+  }
   buildGanttDayPills();
   populateGanttFilters();
   renderGantt();
