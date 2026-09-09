@@ -447,6 +447,71 @@ tbody tr:hover td{background:var(--s1)}
   .fg input,.fg select{width:100%}
 }
 
+/* ══════════════════════ MULTI-SELECT DROPDOWN ══════════════════════ */
+.ms-wrap{position:relative}
+.ms-trigger{
+  display:flex;align-items:center;justify-content:space-between;gap:6px;
+  background:var(--s1);border:1px solid var(--line);border-radius:6px;
+  padding:5px 9px;cursor:pointer;font-size:12px;color:var(--t0);
+  white-space:nowrap;min-width:130px;user-select:none;
+}
+.ms-trigger:hover{border-color:var(--line2)}
+.ms-trigger.open{border-color:var(--accent)}
+.ms-caret{font-size:9px;color:var(--t3);transition:.15s}
+.ms-trigger.open .ms-caret{transform:rotate(180deg)}
+.ms-badge{
+  background:var(--accent);color:#fff;border-radius:10px;
+  font-size:9px;font-weight:800;padding:1px 5px;margin-left:2px;
+}
+.ms-dropdown{
+  position:absolute;top:calc(100% + 4px);left:0;z-index:200;
+  background:var(--s0);border:1px solid var(--line2);border-radius:8px;
+  box-shadow:0 12px 32px rgba(0,0,0,.5);min-width:220px;max-width:300px;
+  max-height:260px;overflow-y:auto;padding:4px;
+}
+.ms-dropdown::-webkit-scrollbar{width:4px}
+.ms-dropdown::-webkit-scrollbar-thumb{background:var(--s3);border-radius:4px}
+.ms-dropdown.hidden{display:none}
+.ms-opt{
+  display:flex;align-items:center;gap:8px;padding:6px 10px;
+  border-radius:5px;cursor:pointer;font-size:12px;color:var(--t0);
+  transition:.1s;
+}
+.ms-opt:hover{background:var(--s2)}
+.ms-opt.selected{background:rgba(61,126,248,.12);color:var(--accent)}
+.ms-opt input[type=checkbox]{accent-color:var(--accent);width:13px;height:13px;flex-shrink:0;cursor:pointer}
+.ms-opt-all{border-bottom:1px solid var(--line);margin-bottom:4px;font-weight:700;color:var(--t2);font-size:11px}
+/* Meus Técnicos toggle */
+.mt-toggle{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:5px 12px;border-radius:6px;cursor:pointer;
+  font-size:11px;font-weight:700;letter-spacing:.02em;
+  border:1px solid var(--line);background:var(--s1);color:var(--t2);
+  transition:.15s;white-space:nowrap;
+}
+.mt-toggle:hover{border-color:var(--amber);color:var(--amber)}
+.mt-toggle.active{background:#2d2500;border-color:var(--amber);color:var(--amber)}
+.mt-toggle .mt-ct{font-family:var(--mono);font-size:10px;background:var(--amber);color:#000;border-radius:8px;padding:1px 5px;font-weight:800}
+/* Meus Técnicos modal */
+.mt-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:600;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
+.mt-modal-overlay.hidden{display:none}
+.mt-modal{background:var(--s0);border:1px solid var(--line2);border-radius:10px;padding:20px;width:480px;max-width:calc(100vw - 32px);max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.mt-modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.mt-modal-title{font-size:14px;font-weight:700;color:var(--t0)}
+.mt-modal-close{background:none;border:none;color:var(--t2);font-size:18px;cursor:pointer;line-height:1}
+.mt-modal-close:hover{color:var(--t0)}
+.mt-modal-body{flex:1;overflow-y:auto;margin-bottom:14px}
+.mt-list{display:flex;flex-direction:column;gap:4px}
+.mt-item{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--s1);border:1px solid var(--line);border-radius:6px}
+.mt-item-cod{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--accent);min-width:70px}
+.mt-item-name{font-size:12px;color:var(--t0);flex:1}
+.mt-item-rm{background:none;border:none;color:var(--t3);cursor:pointer;font-size:14px;line-height:1;padding:2px 4px}
+.mt-item-rm:hover{color:var(--red)}
+.mt-add-row{display:flex;gap:6px;margin-top:10px}
+.mt-add-row input{flex:1;background:var(--s1);border:1px solid var(--line);border-radius:6px;padding:7px 10px;font-size:12px;color:var(--t0);font-family:var(--font);outline:none}
+.mt-add-row input:focus{border-color:var(--accent)}
+.mt-modal-actions{display:flex;gap:8px;justify-content:flex-end;padding-top:12px;border-top:1px solid var(--line)}
+
 /* ══════════════════════ GANTT ══════════════════════ */
 .gantt-topbar{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
 .day-pills{display:flex;gap:3px;background:var(--s1);border:1px solid var(--line);border-radius:7px;padding:3px}
@@ -948,20 +1013,52 @@ mark.slot-hl{background:#facc1540;color:#fde68a;border-radius:2px;padding:0 1px;
       <button class="ic-clear" onclick="event.stopPropagation();clearGantt()">✕</button>
     </div>
     <div class="topbar-sep"></div>
-    <div class="filter-row" id="gantt-filter-row">
+    <div class="filter-row" id="gantt-filter-row" style="flex-wrap:wrap;gap:8px">
+      <!-- Gestor RC multi-select -->
       <div class="fg">
         <label>Gestor RC</label>
-        <select id="gantt-gestor" onchange="renderGantt()"><option value="">Todos</option></select>
+        <div class="ms-wrap" id="ms-gestor-wrap">
+          <div class="ms-trigger" id="ms-gestor-trigger" onclick="toggleMsDropdown('gestor')">
+            <span id="ms-gestor-label">Todos</span>
+            <span class="ms-caret">▼</span>
+          </div>
+          <div class="ms-dropdown hidden" id="ms-gestor-dropdown">
+            <div class="ms-opt ms-opt-all" onclick="msClearAll('gestor')">✕ Limpar seleção</div>
+          </div>
+        </div>
       </div>
+      <!-- Zona multi-select -->
       <div class="fg">
         <label>Zona</label>
-        <select id="gantt-zona" onchange="renderGantt()"><option value="">Todas</option></select>
+        <div class="ms-wrap" id="ms-zona-wrap">
+          <div class="ms-trigger" id="ms-zona-trigger" onclick="toggleMsDropdown('zona')">
+            <span id="ms-zona-label">Todas</span>
+            <span class="ms-caret">▼</span>
+          </div>
+          <div class="ms-dropdown hidden" id="ms-zona-dropdown">
+            <div class="ms-opt ms-opt-all" onclick="msClearAll('zona')">✕ Limpar seleção</div>
+          </div>
+        </div>
       </div>
-      <div class="fg" style="flex:1;min-width:140px">
+      <!-- Meus Técnicos toggle -->
+      <div class="fg" style="align-self:flex-end">
+        <label>&nbsp;</label>
+        <div style="display:flex;gap:4px">
+          <button class="mt-toggle" id="mt-toggle-btn" onclick="toggleMeusTecnicos()">
+            ⭐ Meus Técnicos
+            <span class="mt-ct" id="mt-ct">0</span>
+          </button>
+          <button class="btn-sec" onclick="openMtModal()" title="Gerir lista" style="padding:5px 8px">⚙</button>
+        </div>
+      </div>
+      <!-- Pesquisa rápida -->
+      <div class="fg" style="flex:1;min-width:160px">
         <label>🔍 Pesquisa rápida</label>
         <input type="text" id="gantt-search" placeholder="POP, OT, equipa, VDF, cliente, tlm…" oninput="renderGantt()" autocomplete="off" style="width:100%">
       </div>
-      <button class="btn-sec" onclick="exportGantt()" title="Exportar XLSX">⬇ Exportar</button>
+      <div style="align-self:flex-end">
+        <button class="btn-sec" onclick="exportGantt()" title="Exportar XLSX">⬇ Exportar</button>
+      </div>
     </div>
   </div>
 
@@ -1027,6 +1124,28 @@ mark.slot-hl{background:#facc1540;color:#fde68a;border-radius:2px;padding:0 1px;
     <div class="ml-item"><div class="ml-sq" style="background:#3d7ef840;border:1px solid #3d7ef8"></div>Equipa (hora)</div>
   </div>
 </main>
+
+<!-- Meus Técnicos modal -->
+<div class="mt-modal-overlay hidden" id="mt-modal">
+  <div class="mt-modal">
+    <div class="mt-modal-head">
+      <div class="mt-modal-title">⭐ Meus Técnicos — Gerir Lista</div>
+      <button class="mt-modal-close" onclick="closeMtModal()">✕</button>
+    </div>
+    <div class="mt-modal-body">
+      <div class="mt-list" id="mt-list"></div>
+      <div class="mt-add-row">
+        <input type="text" id="mt-add-cod" placeholder="Código da equipa (ex: CGO0104)" autocomplete="off">
+        <input type="text" id="mt-add-name" placeholder="Nome / empresa (ex: dstelecom - André)" autocomplete="off">
+        <button class="btn-pri" onclick="mtAddItem()" style="white-space:nowrap;padding:7px 12px">+ Adicionar</button>
+      </div>
+    </div>
+    <div class="mt-modal-actions">
+      <button class="btn-sec" onclick="mtImportFromGantt()">↓ Importar do Gantt</button>
+      <button class="btn-sec" onclick="closeMtModal()">Fechar</button>
+    </div>
+  </div>
+</div>
 
 <!-- Gantt edit modal -->
 <div class="modal-overlay hidden" id="gantt-modal">
@@ -1751,13 +1870,8 @@ function populateGanttFilters(){
   const teams=ganttSheets[day]||[];
   const gestores=[...new Set(teams.map(t=>t.gestor).filter(Boolean))].sort();
   const zonas=[...new Set(teams.map(t=>t.zona).filter(Boolean))].sort();
-
-  const gSel=document.getElementById('gantt-gestor');
-  const zSel=document.getElementById('gantt-zona');
-  const gVal=gSel.value; const zVal=zSel.value;
-  gSel.innerHTML='<option value="">Todos</option>'+gestores.map(g=>`<option>${g}</option>`).join('');
-  zSel.innerHTML='<option value="">Todas</option>'+zonas.map(z=>`<option>${z}</option>`).join('');
-  gSel.value=gVal; zSel.value=zVal;
+  buildMsDropdown('gestor', gestores);
+  buildMsDropdown('zona', zonas);
 }
 
 function renderGantt(){
@@ -1773,12 +1887,17 @@ function renderGantt(){
   empty.style.display='none'; body.style.display='';
 
   // filters
-  const gf=document.getElementById('gantt-gestor').value;
-  const zf=document.getElementById('gantt-zona').value;
+  const gf=getMsSelected('gestor');   // Set of selected gestores (empty = todos)
+  const zf=getMsSelected('zona');     // Set of selected zonas
   const sf=(document.getElementById('gantt-search').value||'').trim().toLowerCase();
+  const mtActive=document.getElementById('mt-toggle-btn').classList.contains('active');
   let teams=allTeams;
-  if(gf) teams=teams.filter(t=>t.gestor===gf);
-  if(zf) teams=teams.filter(t=>t.zona===zf);
+  if(gf.size) teams=teams.filter(t=>gf.has(t.gestor||''));
+  if(zf.size) teams=teams.filter(t=>zf.has(t.zona||''));
+  if(mtActive&&meusTecnicos.length){
+    const codes=new Set(meusTecnicos.map(m=>m.cod.toUpperCase().trim()));
+    teams=teams.filter(t=>codes.has((t.equipaCod||'').toUpperCase().trim()));
+  }
 
   // apply edits
   const edits=ganttEdits[day]||{};
@@ -1944,6 +2063,184 @@ function saveSlot(){
   renderGantt();
   toast('Slot guardado');
 }
+
+// ══════════════════════════════════════════════
+// MULTI-SELECT DROPDOWN ENGINE
+// ══════════════════════════════════════════════
+const msState={gestor:new Set(), zona:new Set()};
+
+function buildMsDropdown(key, options){
+  const dd=document.getElementById(`ms-${key}-dropdown`);
+  // keep only the "clear all" first row
+  const clear=dd.querySelector('.ms-opt-all');
+  dd.innerHTML='';
+  dd.appendChild(clear);
+  options.forEach(opt=>{
+    const div=document.createElement('div');
+    div.className='ms-opt'+(msState[key].has(opt)?' selected':'');
+    div.innerHTML=`<input type="checkbox" ${msState[key].has(opt)?'checked':''} onclick="event.stopPropagation()"><span>${esc(opt)}</span>`;
+    div.onclick=()=>{ msToggle(key,opt,div); };
+    dd.appendChild(div);
+  });
+  updateMsLabel(key);
+}
+
+function msToggle(key,val,el){
+  if(msState[key].has(val)){ msState[key].delete(val); el.classList.remove('selected'); el.querySelector('input').checked=false; }
+  else { msState[key].add(val); el.classList.add('selected'); el.querySelector('input').checked=true; }
+  updateMsLabel(key);
+  renderGantt();
+}
+
+function msClearAll(key){
+  msState[key].clear();
+  document.querySelectorAll(`#ms-${key}-dropdown .ms-opt:not(.ms-opt-all)`).forEach(el=>{
+    el.classList.remove('selected'); el.querySelector('input').checked=false;
+  });
+  updateMsLabel(key);
+  renderGantt();
+}
+
+function updateMsLabel(key){
+  const n=msState[key].size;
+  const lbl=document.getElementById(`ms-${key}-label`);
+  const trigger=document.getElementById(`ms-${key}-trigger`);
+  if(n===0){ lbl.innerHTML=key==='gestor'?'Todos':'Todas'; trigger.querySelector('.ms-badge')?.remove(); }
+  else {
+    const first=[...msState[key]][0];
+    lbl.textContent=n===1?first:first+' …';
+    let badge=trigger.querySelector('.ms-badge');
+    if(!badge){ badge=document.createElement('span'); badge.className='ms-badge'; trigger.insertBefore(badge,trigger.querySelector('.ms-caret')); }
+    badge.textContent=n;
+  }
+}
+
+function getMsSelected(key){ return msState[key]; }
+
+function toggleMsDropdown(key){
+  const dd=document.getElementById(`ms-${key}-dropdown`);
+  const trigger=document.getElementById(`ms-${key}-trigger`);
+  const isOpen=!dd.classList.contains('hidden');
+  // close all
+  document.querySelectorAll('.ms-dropdown').forEach(d=>d.classList.add('hidden'));
+  document.querySelectorAll('.ms-trigger').forEach(t=>t.classList.remove('open'));
+  if(!isOpen){ dd.classList.remove('hidden'); trigger.classList.add('open'); }
+}
+
+// Close dropdowns on outside click
+document.addEventListener('click',e=>{
+  if(!e.target.closest('.ms-wrap')){
+    document.querySelectorAll('.ms-dropdown').forEach(d=>d.classList.add('hidden'));
+    document.querySelectorAll('.ms-trigger').forEach(t=>t.classList.remove('open'));
+  }
+});
+
+// ══════════════════════════════════════════════
+// MEUS TÉCNICOS
+// ══════════════════════════════════════════════
+const MT_DEFAULT=[
+  {cod:'CGO0104',name:'dstelecom - Andre Gonçalves (Drop)'},
+  {cod:'CGP0268',name:'Violetensaio - Miguel Gregório (Drop)'},
+  {cod:'CGP0269',name:'Violetensaio - José Martins (Drop)'},
+  {cod:'CGP0270',name:'Violetensaio - Rui Godinho (Drop)'},
+  {cod:'CGP0271',name:'Violetensaio - Francisco Lima (Drop)'},
+  {cod:'CGP0275',name:'Developtel - Fabio Nunes (Drop)'},
+  {cod:'CGO0103',name:'dstelecom - Paulo Clara (Drop)'},
+  {cod:'CGO0079',name:'dstelecom - Wellington Alves (Drop)'},
+  {cod:'CGO0031',name:'dstelecom - Manuel Caldeira (Drop)'},
+  {cod:'CGP0281',name:'GM Telecomunicações - Janisley Silva (Drop)'},
+  {cod:'CGO0073',name:'dstelecom - Ricardo Martins (Drop)'},
+  {cod:'CGO0063',name:'dstelecom - Tiago Rosado (Drop)'},
+  {cod:'CGO0066',name:'dstelecom - João Careto (Drop)'},
+  {cod:'CGO0084',name:'dstelecom - David Bairinhas (Drop)'},
+  {cod:'CGO0069',name:'dstelecom - Rui Faias (Drop)'},
+  {cod:'CGP0254',name:'ElectCarrondos - Paulo Alexandre (Drop)'},
+  {cod:'CGP0255',name:'ElectCarrondos - Pablo Cravo (Drop)'},
+  {cod:'CGP0256',name:'ElectCarrondos - Thiago Ferreira (Drop)'},
+  {cod:'CGP0257',name:'ElectCarrondos - Angelo Prado (Drop)'},
+  {cod:'CGP0259',name:'ElectCarrondos - Gabriel Ribeiro (Drop)'},
+  {cod:'CGP0308',name:'TFFranco - João Mendonça (Drop)'},
+];
+
+let meusTecnicos=parse('swat_meus_tecnicos')||MT_DEFAULT;
+
+function updateMtCt(){
+  document.getElementById('mt-ct').textContent=meusTecnicos.length;
+}
+
+function toggleMeusTecnicos(){
+  const btn=document.getElementById('mt-toggle-btn');
+  btn.classList.toggle('active');
+  renderGantt();
+}
+
+function openMtModal(){
+  renderMtList();
+  document.getElementById('mt-modal').classList.remove('hidden');
+}
+function closeMtModal(){ document.getElementById('mt-modal').classList.add('hidden'); }
+
+function renderMtList(){
+  const list=document.getElementById('mt-list');
+  list.innerHTML='';
+  if(!meusTecnicos.length){
+    list.innerHTML='<div style="color:var(--t3);font-size:12px;padding:8px">Nenhum técnico guardado.</div>';
+    return;
+  }
+  meusTecnicos.forEach((m,i)=>{
+    const div=document.createElement('div');
+    div.className='mt-item';
+    div.innerHTML=`
+      <span class="mt-item-cod">${esc(m.cod)}</span>
+      <span class="mt-item-name">${esc(m.name||'')}</span>
+      <button class="mt-item-rm" onclick="mtRemove(${i})" title="Remover">✕</button>`;
+    list.appendChild(div);
+  });
+}
+
+function mtRemove(i){
+  meusTecnicos.splice(i,1);
+  save('swat_meus_tecnicos',meusTecnicos);
+  updateMtCt(); renderMtList(); renderGantt();
+}
+
+function mtAddItem(){
+  const cod=(document.getElementById('mt-add-cod').value||'').trim().toUpperCase();
+  const name=(document.getElementById('mt-add-name').value||'').trim();
+  if(!cod){ toast('Insira o código da equipa','err'); return; }
+  if(meusTecnicos.find(m=>m.cod===cod)){ toast('Código já existe','err'); return; }
+  meusTecnicos.push({cod,name});
+  save('swat_meus_tecnicos',meusTecnicos);
+  document.getElementById('mt-add-cod').value='';
+  document.getElementById('mt-add-name').value='';
+  updateMtCt(); renderMtList(); renderGantt();
+  toast('Técnico adicionado');
+}
+
+function mtImportFromGantt(){
+  // Import all unique equipa codes from the current day's gantt
+  const day=ganttActiveDay;
+  const teams=ganttSheets[day]||[];
+  let added=0;
+  teams.forEach(t=>{
+    const cod=(t.equipaCod||'').trim().toUpperCase();
+    const name=(t.equipaNome||'').trim();
+    if(cod&&!meusTecnicos.find(m=>m.cod===cod)){
+      meusTecnicos.push({cod,name});
+      added++;
+    }
+  });
+  save('swat_meus_tecnicos',meusTecnicos);
+  updateMtCt(); renderMtList();
+  toast(added?`${added} equipas importadas do Gantt`:'Nenhuma equipa nova para importar');
+}
+
+document.getElementById('mt-modal').addEventListener('click',e=>{ if(e.target.id==='mt-modal') closeMtModal(); });
+document.getElementById('mt-add-cod').addEventListener('keydown',e=>{ if(e.key==='Enter') document.getElementById('mt-add-name').focus(); });
+document.getElementById('mt-add-name').addEventListener('keydown',e=>{ if(e.key==='Enter') mtAddItem(); });
+
+// Init counter on load
+updateMtCt();
 
 // OT lookup index — rebuilt whenever esperaRows changes
 function buildOtIndex(){
