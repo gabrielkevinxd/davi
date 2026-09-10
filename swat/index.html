@@ -661,10 +661,15 @@ tbody tr:hover td{background:var(--s1)}
   font-family:var(--mono);font-size:9px;color:rgba(255,255,255,.4);
   line-height:1;
 }
+.slot-obs{font-size:8px;color:rgba(255,255,255,.5);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-style:italic;margin-top:1px}
 .st-indisp .slot-tipo{color:var(--t2)}
 .st-almoco .slot-tipo{color:var(--t3)}
 .st-ferias .slot-tipo{color:var(--g-text)}
 .st-policia .slot-tipo{color:#fbbf24}
+/* drag & drop */
+.gd-slot.dragging{opacity:.4;cursor:grabbing}
+.gd-slot[draggable="true"]{cursor:grab}
+.gd-slot.drag-over .slot-inner{outline:2px dashed var(--accent);outline-offset:-2px;background:rgba(61,126,248,.15)}
 /* same OT as previous slot → visual continuity */
 .gd-slot.cont-prev .slot-inner{border-radius:0 4px 4px 0;border-left:none}
 .gd-slot.cont-next .slot-inner{border-radius:4px 0 0 4px}
@@ -2430,7 +2435,8 @@ function renderGantt(){
   const zf=getMsSelected('zona');     // Set of selected zonas
   const sf=(document.getElementById('gantt-search').value||'').trim().toLowerCase();
   const mtActive=document.getElementById('mt-toggle-btn').classList.contains('active');
-  let teams=allTeams;
+  // Tag each team with its ORIGINAL index before any filtering (fixes status/edit keys after filter)
+  let teams=allTeams.map((t,i)=>({...t,_origIdx:i}));
   if(gf.size) teams=teams.filter(t=>gf.has(t.gestor||''));
   if(zf.size) teams=teams.filter(t=>zf.has(t.zona||''));
   if(mtActive&&meusTecnicos.length){
@@ -2438,11 +2444,11 @@ function renderGantt(){
     teams=teams.filter(t=>codes.has((t.equipaCod||'').toUpperCase().trim()));
   }
 
-  // apply edits (includes status field)
+  // apply edits using _origIdx so keys survive filtering
   const edits=ganttEdits[day]||{};
-  teams=teams.map((t,ti)=>{
+  teams=teams.map(t=>{
     const slots=t.slots.map((s,si)=>{
-      const k=`${ti}_${si}`;
+      const k=`${t._origIdx}_${si}`;
       return edits[k]?{...s,...edits[k]}:s;
     });
     return {...t,slots};
@@ -2484,7 +2490,8 @@ function renderGantt(){
   // tbody
   const tbody=document.getElementById('gantt-tbody');
   tbody.innerHTML='';
-  teams.forEach((t,ti)=>{
+  teams.forEach((t)=>{
+    const ti=t._origIdx; // always use original index for edit/status keys
     const tr=document.createElement('tr');
     // equipa cell
     const tdEq=document.createElement('td');
@@ -2534,16 +2541,30 @@ function renderGantt(){
         <div class="tip-arrow"></div>
       </div>`:'';
       const statusTitle=s.status==='done'?'Concluída':s.status==='wip'?'Em execução':s.status==='notok'?'Não OK':'Marcar estado';
+      const obsShort=s.obs&&s.obs!=='Nota livre...'?s.obs.substring(0,28)+(s.obs.length>28?'…':''):'';
       td.innerHTML=`<button class="slot-status-btn" title="${statusTitle}"></button><div class="slot-inner">
         ${(s.tipo||hasDrop)?`<div class="slot-tipo-row">${s.tipo?`<span class="slot-tipo">${esc(tipoLabel(s.tipo)||s.tipo)}</span>`:''}${hasDrop?'<span class="slot-drop" title="Drop instalado — execução mais rápida">Drop</span>':''}</div>`:''}
         ${s.ot?`<div class="slot-ot">${esc(s.ot)}</div>`:''}
         ${s.pop?`<div class="slot-pop">${sf&&s._slotMatch?`<mark class="slot-hl">${esc(s.pop)}</mark>`:esc(s.pop)}</div>`:''}
+        ${obsShort?`<div class="slot-obs">${esc(obsShort)}</div>`:''}
       </div>${tipHtml}`;
       td.querySelector('.slot-status-btn').onclick=e=>{e.stopPropagation();cycleSlotStatus(day,ti,si);};
       if(!s.ot){
         td.onclick=e=>{ e.stopPropagation(); openLeSuggest(day,ti,si,t,e); };
+        // drop target
+        td.ondragover=e=>{e.preventDefault();td.classList.add('drag-over');};
+        td.ondragleave=()=>td.classList.remove('drag-over');
+        td.ondrop=e=>{e.preventDefault();td.classList.remove('drag-over');dropSlot(day,ti,si);};
       } else {
         td.onclick=()=>openModal(day,ti,si,t,s);
+        // drag source
+        td.draggable=true;
+        td.ondragstart=e=>{e.dataTransfer.effectAllowed='move';startDragSlot(day,ti,si,s);td.classList.add('dragging');};
+        td.ondragend=()=>td.classList.remove('dragging');
+        // also accept drops (swap)
+        td.ondragover=e=>{if(_dragSrc&&(_dragSrc.ti!==ti||_dragSrc.si!==si)){e.preventDefault();td.classList.add('drag-over');}};
+        td.ondragleave=()=>td.classList.remove('drag-over');
+        td.ondrop=e=>{e.preventDefault();td.classList.remove('drag-over');dropSlot(day,ti,si,s);};
       }
       td.oncontextmenu=e=>{ e.preventDefault(); openCtxMenu(e,day,ti,si,t,s); };
       tr.appendChild(td);
@@ -2627,6 +2648,33 @@ function saveSlot(){
   closeModal();
   renderGantt();
   toast('Slot guardado');
+}
+
+// ══ Drag & Drop slot transfer ══
+let _dragSrc=null;
+function startDragSlot(day,ti,si,slotData){
+  _dragSrc={day,ti,si,slotData:{ot:slotData.ot,tipo:slotData.tipo,pop:slotData.pop,obs:slotData.obs,status:slotData.status||''}};
+}
+function dropSlot(day,targetTi,targetSi,targetSlot){
+  if(!_dragSrc) return;
+  const {day:srcDay,ti:srcTi,si:srcSi,slotData:src}=_dragSrc;
+  _dragSrc=null;
+  if(srcDay!==day) return; // cross-day drag not supported
+  if(!ganttEdits[day]) ganttEdits[day]={};
+  const srcKey=`${srcTi}_${srcSi}`;
+  const dstKey=`${targetTi}_${targetSi}`;
+  const existingSrc=ganttEdits[day][srcKey]||{};
+  const existingDst=ganttEdits[day][dstKey]||{};
+  // Move src to dst; if dst had an OT, swap it back to src
+  const dstOt=targetSlot?.ot||existingDst.ot||'';
+  const dstTipo=targetSlot?.tipo||existingDst.tipo||'';
+  const dstPop=targetSlot?.pop||existingDst.pop||'';
+  const dstObs=targetSlot?.obs||existingDst.obs||'';
+  ganttEdits[day][dstKey]={...existingDst,ot:src.ot,tipo:src.tipo,pop:src.pop,obs:src.obs,status:src.status};
+  ganttEdits[day][srcKey]={...existingSrc,ot:dstOt,tipo:dstTipo,pop:dstPop,obs:dstObs,status:''};
+  save('swat_gantt_edits',ganttEdits);
+  renderGantt();
+  toast(dstOt?`OTs trocadas (${src.ot} ↔ ${dstOt})`:`OT ${src.ot} movida`);
 }
 
 function cycleSlotStatus(day,teamIdx,slotIdx){
