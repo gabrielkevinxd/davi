@@ -778,6 +778,25 @@ tbody tr:hover td{background:var(--s1)}
 .gd-slot.slot-match{outline:2px solid #facc15;outline-offset:-2px;z-index:2;position:relative}
 .gd-slot.team-match{outline:2px solid #3d7ef840;outline-offset:-2px;z-index:1;position:relative}
 mark.slot-hl{background:#facc1540;color:#fde68a;border-radius:2px;padding:0 1px;font-style:normal}
+/* per-term slot highlight colors (up to 5 terms) */
+.gd-slot.sm-0{outline-color:#facc15}.gd-slot.sm-1{outline-color:#34d399}.gd-slot.sm-2{outline-color:#f87171}
+.gd-slot.sm-3{outline-color:#c084fc}.gd-slot.sm-4{outline-color:#fb923c}
+mark.hl-0{background:#facc1520;color:#fde68a}mark.hl-1{background:#34d39920;color:#6ee7b7}
+mark.hl-2{background:#f8717120;color:#fca5a5}mark.hl-3{background:#c084fc20;color:#e9d5ff}
+mark.hl-4{background:#fb923c20;color:#fdba74}
+/* Tag-input search */
+.search-tag-wrap{display:flex;flex-wrap:wrap;align-items:center;gap:4px;min-height:30px;padding:3px 6px;background:var(--s1);border:1px solid var(--line2);border-radius:7px;cursor:text;transition:.15s}
+.search-tag-wrap:focus-within{border-color:var(--accent)}
+.search-tag{display:inline-flex;align-items:center;gap:4px;padding:2px 7px 2px 8px;border-radius:5px;font-size:11px;font-weight:600;white-space:nowrap;flex-shrink:0}
+.search-tag .st-x{cursor:pointer;opacity:.6;font-size:10px;line-height:1;padding:1px 2px;border-radius:3px}
+.search-tag .st-x:hover{opacity:1;background:rgba(0,0,0,.3)}
+.tag-c0{background:#facc1522;color:#fde68a;border:1px solid #facc1555}
+.tag-c1{background:#34d39922;color:#6ee7b7;border:1px solid #34d39955}
+.tag-c2{background:#f8717122;color:#fca5a5;border:1px solid #f8717155}
+.tag-c3{background:#c084fc22;color:#e9d5ff;border:1px solid #c084fc55}
+.tag-c4{background:#fb923c22;color:#fdba74;border:1px solid #fb923c55}
+.search-tag-input{flex:1;min-width:80px;background:transparent;border:none;outline:none;font-size:12px;color:var(--t0);padding:2px 2px}
+.search-tag-input::placeholder{color:var(--t3)}
 
 /* Slot tooltip */
 .gd-slot{position:relative}
@@ -1145,10 +1164,14 @@ mark.slot-hl{background:#facc1540;color:#fde68a;border-radius:2px;padding:0 1px;
           <button class="btn-sec" onclick="openMtModal()" title="Gerir lista" style="padding:5px 8px">⚙</button>
         </div>
       </div>
-      <!-- Pesquisa rápida -->
+      <!-- Pesquisa rápida (tag-input) -->
       <div class="fg" style="flex:1;min-width:160px">
-        <label>🔍 Pesquisa rápida</label>
-        <input type="text" id="gantt-search" placeholder="POP, OT, equipa, VDF, cliente, tlm…" oninput="renderGantt()" autocomplete="off" style="width:100%">
+        <label>🔍 Pesquisa rápida <span id="search-term-ct" style="color:var(--t3);font-weight:400"></span></label>
+        <div class="search-tag-wrap" id="search-tag-wrap" onclick="document.getElementById('gantt-search').focus()">
+          <div id="search-chips"></div>
+          <input type="text" id="gantt-search" class="search-tag-input" placeholder="POP, OT, equipa… vírgula = novo termo" autocomplete="off"
+            oninput="onSearchInput()" onkeydown="onSearchKey(event)">
+        </div>
       </div>
       <div style="align-self:flex-end">
         <button class="btn-sec" onclick="exportGantt()" title="Exportar XLSX">⬇ Exportar</button>
@@ -2418,6 +2441,50 @@ function populateGanttFilters(){
   buildMsDropdown('zona', zonas);
 }
 
+// ══ Tag-input search ══
+window._searchChips=[];
+const TAG_COLORS=['tag-c0','tag-c1','tag-c2','tag-c3','tag-c4'];
+function renderSearchChips(){
+  const chips=window._searchChips;
+  const wrap=document.getElementById('search-chips');
+  if(!wrap) return;
+  wrap.innerHTML=chips.map((c,i)=>`<span class="search-tag ${TAG_COLORS[i%5]}">${esc(c)}<span class="st-x" onclick="removeSearchChip(${i})">✕</span></span>`).join('');
+  const ct=document.getElementById('search-term-ct');
+  if(ct) ct.textContent=chips.length?`· ${chips.length+1} termos`:'';
+}
+function addSearchChip(val){
+  const v=val.trim();
+  if(v&&!window._searchChips.includes(v)&&window._searchChips.length<4) window._searchChips.push(v);
+  document.getElementById('gantt-search').value='';
+  renderSearchChips(); renderGantt();
+}
+function removeSearchChip(idx){
+  window._searchChips.splice(idx,1);
+  renderSearchChips(); renderGantt();
+}
+function onSearchInput(){
+  const inp=document.getElementById('gantt-search');
+  const v=inp.value;
+  if(v.includes(',')){
+    const parts=v.split(',');
+    // all parts except last become chips
+    parts.slice(0,-1).forEach(p=>addSearchChip(p));
+    inp.value=parts[parts.length-1].trimStart();
+    renderSearchChips();
+  }
+  renderGantt();
+}
+function onSearchKey(e){
+  const inp=document.getElementById('gantt-search');
+  if(e.key==='Backspace'&&!inp.value&&window._searchChips.length){
+    e.preventDefault();
+    removeSearchChip(window._searchChips.length-1);
+  }
+  if(e.key==='Enter'&&inp.value.trim()){
+    addSearchChip(inp.value);
+  }
+}
+
 function renderGantt(){
   const day=ganttActiveDay;
   const allTeams=ganttSheets[day]||[];
@@ -2433,7 +2500,10 @@ function renderGantt(){
   // filters
   const gf=getMsSelected('gestor');   // Set of selected gestores (empty = todos)
   const zf=getMsSelected('zona');     // Set of selected zonas
-  const sf=(document.getElementById('gantt-search').value||'').trim().toLowerCase();
+  // Multi-term search: chips + current input value, OR logic between terms
+  const _rawInput=(document.getElementById('gantt-search').value||'').trim().toLowerCase();
+  const _allTerms=[...(window._searchChips||[]).map(c=>c.toLowerCase()),_rawInput].filter(Boolean);
+  const sf=_allTerms.join('\x00'); // internal sentinel — use _allTerms for logic below
   const mtActive=document.getElementById('mt-toggle-btn').classList.contains('active');
   // Tag each team with its ORIGINAL index before any filtering (fixes status/edit keys after filter)
   let teams=allTeams.map((t,i)=>({...t,_origIdx:i}));
@@ -2454,14 +2524,19 @@ function renderGantt(){
     return {...t,slots};
   });
 
-  // Super-dynamic search: matches team fields OR slot fields OR cliente data
-  if(sf){
+  // Multi-term OR search: team/slot visible if ANY term matches
+  const terms=_allTerms; // array of lowercase strings
+  if(terms.length){
     const teamHay=t=>[t.gestor,t.equipaNome,t.equipaCod,t.zona,t.zonaAtua].join('\n').toLowerCase();
     const slotHay=s=>{ const c=s.ot?clienteForOt(s.ot):null; return [s.ot,s.tipo,s.pop,s.obs,c?.cliente,c?.contacto].join('\n').toLowerCase(); };
-    teams=teams.filter(t=>teamHay(t).includes(sf)||t.slots.some(s=>slotHay(s).includes(sf)));
+    const matchTerm=(hay,term)=>hay.includes(term);
+    const teamTermIdx=t=>{ const h=teamHay(t); return terms.findIndex(term=>matchTerm(h,term)); };
+    const slotTermIdx=s=>{ const h=slotHay(s); return terms.findIndex(term=>matchTerm(h,term)); };
+    teams=teams.filter(t=>teamTermIdx(t)>=0||t.slots.some(s=>slotTermIdx(s)>=0));
     teams=teams.map(t=>{
-      const tm=teamHay(t).includes(sf);
-      return {...t,_teamMatch:tm,slots:t.slots.map(s=>({...s,_slotMatch:slotHay(s).includes(sf)}))};
+      const tIdx=teamTermIdx(t);
+      return {...t,_teamMatch:tIdx>=0,_teamTermIdx:tIdx,
+        slots:t.slots.map(s=>{ const sIdx=slotTermIdx(s); return {...s,_slotMatch:sIdx>=0,_slotTermIdx:sIdx}; })};
     });
   }
 
@@ -2522,8 +2597,8 @@ function renderGantt(){
       td.className='gd-slot';
       const cls=tipoToClass(s.tipo);
       td.classList.add(cls);
-      if(s._slotMatch) td.classList.add('slot-match');
-      else if(sf && t._teamMatch) td.classList.add('team-match');
+      if(s._slotMatch){ td.classList.add('slot-match'); if(s._slotTermIdx>=0) td.classList.add(`sm-${Math.min(s._slotTermIdx,4)}`); }
+      else if(terms.length && t._teamMatch) td.classList.add('team-match');
       // visual continuity if same OT as prev
       if(si>0&&s.ot&&s.ot===t.slots[si-1].ot) td.classList.add('cont-prev');
       if(si<10&&s.ot&&s.ot===t.slots[si+1]?.ot) td.classList.add('cont-next');
@@ -2545,7 +2620,7 @@ function renderGantt(){
       td.innerHTML=`<button class="slot-status-btn" title="${statusTitle}"></button><div class="slot-inner">
         ${(s.tipo||hasDrop)?`<div class="slot-tipo-row">${s.tipo?`<span class="slot-tipo">${esc(tipoLabel(s.tipo)||s.tipo)}</span>`:''}${hasDrop?'<span class="slot-drop" title="Drop instalado — execução mais rápida">Drop</span>':''}</div>`:''}
         ${s.ot?`<div class="slot-ot">${esc(s.ot)}</div>`:''}
-        ${s.pop?`<div class="slot-pop">${sf&&s._slotMatch?`<mark class="slot-hl">${esc(s.pop)}</mark>`:esc(s.pop)}</div>`:''}
+        ${s.pop?`<div class="slot-pop">${terms.length&&s._slotMatch?`<mark class="slot-hl hl-${Math.min(s._slotTermIdx||0,4)}">${esc(s.pop)}</mark>`:esc(s.pop)}</div>`:''}
         ${obsShort?`<div class="slot-obs">${esc(obsShort)}</div>`:''}
       </div>${tipHtml}`;
       td.querySelector('.slot-status-btn').onclick=e=>{e.stopPropagation();cycleSlotStatus(day,ti,si);};
