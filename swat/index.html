@@ -669,6 +669,20 @@ tbody tr:hover td{background:var(--s1)}
 .gd-slot.cont-prev .slot-inner{border-radius:0 4px 4px 0;border-left:none}
 .gd-slot.cont-next .slot-inner{border-radius:4px 0 0 4px}
 .gd-slot.cont-both .slot-inner{border-radius:0;border-left:none}
+/* slot work status: done=green / wip=yellow / notok=gray */
+.slot-status-btn{position:absolute;top:3px;right:3px;width:9px;height:9px;border-radius:50%;border:1.5px solid var(--t3);background:transparent;cursor:pointer;padding:0;z-index:3;transition:.12s;flex-shrink:0}
+.slot-status-btn:hover{border-color:var(--t1);transform:scale(1.25)}
+.gd-slot{position:relative}
+.gd-slot[data-status="done"]  .slot-status-btn{background:#22c55e;border-color:#22c55e}
+.gd-slot[data-status="wip"]   .slot-status-btn{background:#f59e0b;border-color:#f59e0b}
+.gd-slot[data-status="notok"] .slot-status-btn{background:#6b7280;border-color:#6b7280}
+.gd-slot[data-status="done"]  .slot-inner{box-shadow:inset 0 0 0 1.5px #22c55e55}
+.gd-slot[data-status="wip"]   .slot-inner{box-shadow:inset 0 0 0 1.5px #f59e0b66}
+.gd-slot[data-status="notok"] .slot-inner{box-shadow:inset 0 0 0 1.5px #6b728055;opacity:.5}
+/* status legend in topbar */
+.status-legend{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--t2)}
+.sl-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.sl-done{background:#22c55e}.sl-wip{background:#f59e0b}.sl-notok{background:#6b7280}
 
 /* counts + status cols */
 .gd-count{
@@ -1115,6 +1129,11 @@ mark.slot-hl{background:#facc1540;color:#fde68a;border-radius:2px;padding:0 1px;
       <div class="day-pills" id="gantt-days"></div>
       <div style="flex:1"></div>
       <div class="gantt-totals" id="gantt-totals"></div>
+      <div class="status-legend" title="Clica no ponto pequeno no canto de cada slot para mudar estado">
+        <span class="sl-dot sl-done"></span>Concluída
+        <span class="sl-dot sl-wip"></span>Em execução
+        <span class="sl-dot sl-notok"></span>Não OK
+      </div>
     </div>
 
     <div class="gantt-wrap">
@@ -2272,72 +2291,33 @@ function parseGanttPaste(rawText){
         continue;
       }
 
-      // POSITIONAL parsing: Google Script table has tab-separated columns = hours
-      // Header line cells: [0]=name+code, [1]=zona, [2]=zonaAtua, [3..14]=hour slots (8h..19h)
-      // Sub-rows (block): same column structure, name/zona cols are empty
-      const HOUR_COL=3; // first hour column index
+      // Sequential fill: paste format doesn't encode hour position, fill from slot 0 (8h)
       const slots=Array.from({length:NSLOTS},()=>({ot:'',tipo:'',pop:'',obs:''}));
-
-      // Detect if data is positional (header or block lines have ≥ HOUR_COL+1 tab-separated cells)
-      const isGridRow=l=>l.split('\t').length>=HOUR_COL+2;
-      const headerHasHours=cells.slice(HOUR_COL).some(c=>c&&(isOT(stripFlags(c))||isFlag(c)));
-      const blockGridRows=block.filter(isGridRow);
-      const usePositional=headerHasHours||blockGridRows.length>=2;
-
-      if(usePositional){
-        // Determine which grid rows are OT, tipo, POP, obs
-        // If header has OTs → header=OT, blockGridRows[0]=tipo, [1]=POP, [2]=obs
-        // If header has no OTs → blockGridRows[0]=OT, [1]=tipo, [2]=POP, [3]=obs
-        let otRow=null, tipoRow=null, popRow=null, obsRow=null;
-        if(headerHasHours){
-          otRow=cells;
-          tipoRow=blockGridRows[0]?.split('\t').map(c=>c.trim());
-          popRow =blockGridRows[1]?.split('\t').map(c=>c.trim());
-          obsRow =blockGridRows[2]?.split('\t').map(c=>c.trim());
-        } else {
-          otRow  =blockGridRows[0]?.split('\t').map(c=>c.trim());
-          tipoRow=blockGridRows[1]?.split('\t').map(c=>c.trim());
-          popRow =blockGridRows[2]?.split('\t').map(c=>c.trim());
-          obsRow =blockGridRows[3]?.split('\t').map(c=>c.trim());
+      const otSeq=[];
+      let j=0;
+      while(j<block.length){
+        const bl=block[j];
+        if(isFlag(bl)){
+          const nx=block[j+1]?.trim()||'';
+          const nxClean=stripFlags(nx);
+          if(isOT(nxClean)){otSeq.push({ot:nxClean});j+=2;continue;}
+          else{otSeq.push({ot:''});j++;continue;}
         }
-        const getCol=(row,col)=>row&&row.length>col?row[col]:'';
-        for(let si=0;si<NSLOTS;si++){
-          const col=HOUR_COL+si;
-          const rawOT=stripFlags(getCol(otRow,col));
-          const ot=isOT(rawOT)?rawOT:(isFlag(getCol(otRow,col))?stripFlags(getCol(tipoRow,col)||''):'');
-          // If OT col has a flag, OT may be on tipo row (some layouts)
-          const resolvedOT=isOT(rawOT)?rawOT:'';
-          const tipo=getCol(tipoRow,col)||'';
-          const pop=getCol(popRow,col)||'';
-          const obs=getCol(obsRow,col)||'';
-          if(resolvedOT||tipo||pop){
-            slots[si]={ot:resolvedOT,tipo:isTipo(tipo)?tipo:'',pop:isPOP(pop)?pop:'',obs:obs!=='Nota livre...'?obs:''};
-          }
+        const combined=stripFlags(bl);
+        if(isOT(combined)){otSeq.push({ot:combined});j++;continue;}
+        j++;
+      }
+      const tipos=block.filter(isTipo);
+      const pops=block.filter(isPOP);
+      const noteLines=block.filter(l=>l!=='Nota livre...'&&!isTipo(l)&&!isPOP(l)&&!isFlag(l)&&!isOT(stripFlags(l))&&!/^\d+\t/.test(l)&&!/^[✉💡🔀🔁]/.test(l)&&!/^\[/.test(l)&&l.length>2&&l!=='—');
+      let tipoIdx=0,popIdx=0,noteIdx=0,slotFill=0;
+      for(let s=0;s<otSeq.length&&slotFill<NSLOTS;s++){
+        const {ot}=otSeq[s];
+        if(ot){
+          slots[slotFill]={ot,tipo:tipos[tipoIdx]||'',pop:pops[popIdx]||'',obs:noteLines[noteIdx]||''};
+          tipoIdx++;popIdx++;noteIdx++;
         }
-      } else {
-        // Fallback: sequential fill from slot 0 (8h)
-        const otSeq=[];
-        let j=0;
-        while(j<block.length){
-          const bl=block[j];
-          if(isFlag(bl)){
-            const nx=block[j+1]?.trim()||'';
-            const nxClean=stripFlags(nx);
-            if(isOT(nxClean)){otSeq.push({ot:nxClean});j+=2;continue;}
-            else{otSeq.push({ot:''});j++;continue;}
-          }
-          const combined=stripFlags(bl);
-          if(isOT(combined)){otSeq.push({ot:combined});j++;continue;}
-          j++;
-        }
-        const tipos=block.filter(isTipo);
-        const pops=block.filter(isPOP);
-        let tipoIdx=0,popIdx=0,slotFill=0;
-        for(let s=0;s<otSeq.length&&slotFill<NSLOTS;s++){
-          const {ot}=otSeq[s];
-          if(ot){slots[slotFill]={ot,tipo:tipos[tipoIdx]||'',pop:pops[popIdx]||'',obs:''}; tipoIdx++;popIdx++;}
-          slotFill++;
-        }
+        slotFill++;
       }
 
       teams.push({gestor,equipaNome,equipaCod,zona,zonaAtua,nInst,nSup,nAdic,fechado:false,_source:'paste',slots});
@@ -2412,7 +2392,7 @@ function renderGantt(){
     teams=teams.filter(t=>codes.has((t.equipaCod||'').toUpperCase().trim()));
   }
 
-  // apply edits
+  // apply edits (includes status field)
   const edits=ganttEdits[day]||{};
   teams=teams.map((t,ti)=>{
     const slots=t.slots.map((s,si)=>{
@@ -2482,6 +2462,8 @@ function renderGantt(){
       if(si>0&&s.ot&&s.ot===t.slots[si-1].ot) td.classList.add('cont-prev');
       if(si<10&&s.ot&&s.ot===t.slots[si+1]?.ot) td.classList.add('cont-next');
       if(si>0&&s.ot&&s.ot===t.slots[si-1].ot&&si<10&&s.ot===t.slots[si+1]?.ot) td.classList.add('cont-both');
+      // work status
+      if(s.status) td.dataset.status=s.status;
 
       const cli=s.ot?clienteForOt(s.ot):null;
       const tipHtml=s.ot&&(cli||s.pop)?`<div class="slot-tip">
@@ -2490,11 +2472,13 @@ function renderGantt(){
         ${s.ot?`<div class="tip-meta">OT ${esc(s.ot)}${s.pop?' · '+esc(s.pop):''}</div>`:''}
         <div class="tip-arrow"></div>
       </div>`:'';
-      td.innerHTML=`<div class="slot-inner">
+      const statusTitle=s.status==='done'?'Concluída':s.status==='wip'?'Em execução':s.status==='notok'?'Não OK':'Marcar estado';
+      td.innerHTML=`<button class="slot-status-btn" title="${statusTitle}"></button><div class="slot-inner">
         ${s.tipo?`<div class="slot-tipo">${esc(tipoLabel(s.tipo)||s.tipo)}</div>`:''}
         ${s.ot?`<div class="slot-ot">${esc(s.ot)}</div>`:''}
         ${s.pop?`<div class="slot-pop">${sf&&s._slotMatch?`<mark class="slot-hl">${esc(s.pop)}</mark>`:esc(s.pop)}</div>`:''}
       </div>${tipHtml}`;
+      td.querySelector('.slot-status-btn').onclick=e=>{e.stopPropagation();cycleSlotStatus(day,ti,si);};
       td.onclick=()=>openModal(day,ti,si,t,s);
       tr.appendChild(td);
     });
@@ -2565,7 +2549,9 @@ function saveSlot(){
   const {day,teamIdx,slotIdx}=ganttModalCtx;
   if(!ganttEdits[day]) ganttEdits[day]={};
   const k=`${teamIdx}_${slotIdx}`;
+  const existing=ganttEdits[day][k]||{};
   ganttEdits[day][k]={
+    ...existing,
     tipo:document.getElementById('modal-tipo').value,
     ot  :document.getElementById('modal-ot').value,
     pop :document.getElementById('modal-pop').value,
@@ -2575,6 +2561,16 @@ function saveSlot(){
   closeModal();
   renderGantt();
   toast('Slot guardado');
+}
+
+function cycleSlotStatus(day,teamIdx,slotIdx){
+  if(!ganttEdits[day]) ganttEdits[day]={};
+  const k=`${teamIdx}_${slotIdx}`;
+  const cur=(ganttEdits[day][k]||{}).status||'';
+  const next=cur===''?'done':cur==='done'?'wip':cur==='wip'?'notok':'';
+  ganttEdits[day][k]={...(ganttEdits[day][k]||{}),status:next};
+  save('swat_gantt_edits',ganttEdits);
+  renderGantt();
 }
 
 // ══════════════════════════════════════════════
