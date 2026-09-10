@@ -683,8 +683,9 @@ tbody tr:hover td{background:var(--s1)}
 .status-legend{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--t2)}
 .sl-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 .sl-done{background:#22c55e}.sl-wip{background:#f59e0b}.sl-notok{background:#6b7280}
-/* drop badge */
-.slot-drop{position:absolute;top:2px;left:2px;font-size:8px;font-weight:700;line-height:1;z-index:2;color:#4ade80;background:#0f331888;border-radius:3px;padding:1px 3px;letter-spacing:.03em;pointer-events:none}
+/* drop badge — inline beside tipo, no absolute */
+.slot-tipo-row{display:flex;align-items:center;gap:4px;flex-wrap:nowrap;min-width:0}
+.slot-drop{font-size:8px;font-weight:700;line-height:1;color:#4ade80;background:#0f331888;border-radius:3px;padding:1px 3px;letter-spacing:.03em;flex-shrink:0;white-space:nowrap}
 /* empty slot suggest hint */
 .gd-slot.st-vazio:hover .slot-inner::after{content:'+ LE';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--t3);letter-spacing:.05em}
 .slot-inner{position:relative}
@@ -2533,8 +2534,8 @@ function renderGantt(){
         <div class="tip-arrow"></div>
       </div>`:'';
       const statusTitle=s.status==='done'?'Concluída':s.status==='wip'?'Em execução':s.status==='notok'?'Não OK':'Marcar estado';
-      td.innerHTML=`<button class="slot-status-btn" title="${statusTitle}"></button>${hasDrop?'<span class="slot-drop" title="Drop instalado — execução mais rápida">Drop</span>':''}<div class="slot-inner">
-        ${s.tipo?`<div class="slot-tipo">${esc(tipoLabel(s.tipo)||s.tipo)}</div>`:''}
+      td.innerHTML=`<button class="slot-status-btn" title="${statusTitle}"></button><div class="slot-inner">
+        ${(s.tipo||hasDrop)?`<div class="slot-tipo-row">${s.tipo?`<span class="slot-tipo">${esc(tipoLabel(s.tipo)||s.tipo)}</span>`:''}${hasDrop?'<span class="slot-drop" title="Drop instalado — execução mais rápida">Drop</span>':''}</div>`:''}
         ${s.ot?`<div class="slot-ot">${esc(s.ot)}</div>`:''}
         ${s.pop?`<div class="slot-pop">${sf&&s._slotMatch?`<mark class="slot-hl">${esc(s.pop)}</mark>`:esc(s.pop)}</div>`:''}
       </div>${tipHtml}`;
