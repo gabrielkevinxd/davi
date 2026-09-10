@@ -684,7 +684,7 @@ tbody tr:hover td{background:var(--s1)}
 .sl-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 .sl-done{background:#22c55e}.sl-wip{background:#f59e0b}.sl-notok{background:#6b7280}
 /* drop badge */
-.slot-drop{position:absolute;top:2px;left:2px;font-size:8px;line-height:1;z-index:2;opacity:.75;pointer-events:none}
+.slot-drop{position:absolute;top:2px;left:2px;font-size:8px;font-weight:700;line-height:1;z-index:2;color:#4ade80;background:#0f331888;border-radius:3px;padding:1px 3px;letter-spacing:.03em;pointer-events:none}
 /* empty slot suggest hint */
 .gd-slot.st-vazio:hover .slot-inner::after{content:'+ LE';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--t3);letter-spacing:.05em}
 .slot-inner{position:relative}
@@ -710,7 +710,7 @@ tbody tr:hover td{background:var(--s1)}
 .le-suggest-row:hover{background:var(--s2)}
 .le-sug-ot{font-family:var(--mono);font-size:11px;color:var(--t0);font-weight:600}
 .le-sug-meta{font-size:10px;color:var(--t2)}
-.le-sug-drop{color:var(--g-text);font-size:10px}
+.le-sug-drop{color:var(--g-text);font-size:10px;font-weight:600}
 .le-suggest-empty{padding:16px 12px;text-align:center;color:var(--t3);font-size:11px}
 .le-suggest-close{margin:4px 8px 0;padding:5px 10px;font-size:11px;border-radius:6px;border:1px solid var(--line2);background:var(--s2);color:var(--t2);cursor:pointer;width:calc(100% - 16px)}
 .le-suggest-close:hover{background:var(--s3);color:var(--t1)}
@@ -2533,7 +2533,7 @@ function renderGantt(){
         <div class="tip-arrow"></div>
       </div>`:'';
       const statusTitle=s.status==='done'?'Concluída':s.status==='wip'?'Em execução':s.status==='notok'?'Não OK':'Marcar estado';
-      td.innerHTML=`<button class="slot-status-btn" title="${statusTitle}"></button>${hasDrop?'<span class="slot-drop" title="Drop instalado">🏠</span>':''}<div class="slot-inner">
+      td.innerHTML=`<button class="slot-status-btn" title="${statusTitle}"></button>${hasDrop?'<span class="slot-drop" title="Drop instalado — execução mais rápida">Drop</span>':''}<div class="slot-inner">
         ${s.tipo?`<div class="slot-tipo">${esc(tipoLabel(s.tipo)||s.tipo)}</div>`:''}
         ${s.ot?`<div class="slot-ot">${esc(s.ot)}</div>`:''}
         ${s.pop?`<div class="slot-pop">${sf&&s._slotMatch?`<mark class="slot-hl">${esc(s.pop)}</mark>`:esc(s.pop)}</div>`:''}
@@ -2681,31 +2681,52 @@ let _sugCtx=null;
 function openLeSuggest(day,ti,si,team,e){
   closeLeSuggest(); closeCtxMenu();
   _sugCtx={day,ti,si,team};
-  // Build zone list from team's zonaAtua
-  const zones=(team.zonaAtua||'').split(/[\/,\s]+/).filter(z=>/^[A-Z]\d+/.test(z));
-  // Collect all OTs already in today's gantt to exclude
+  // Extract zone codes from zonaAtua (e.g. "C24/C16/S04/S05" → ["C24","C16","S04","S05"])
+  const zones=(team.zonaAtua||'').split(/[\/,;\s]+/).map(z=>z.trim()).filter(z=>/^[A-Za-z]\d+/.test(z));
+  // Collect all OTs already in today's gantt (sheets + edits) to exclude
   const usedOts=new Set();
   (ganttSheets[day]||[]).forEach(t=>t.slots.forEach(s=>{if(s.ot) usedOts.add(s.ot);}));
   Object.values(ganttEdits[day]||{}).forEach(ed=>{if(ed.ot) usedOts.add(ed.ot);});
-  // Filter LE: zone match + not used
-  const candidates=esperaRows.filter(r=>{
-    if(usedOts.has(r.ot)) return false;
-    if(!r.pop) return false;
-    const popZone=r.pop.split('/')[0];
-    return zones.some(z=>z===popZone);
-  }).slice(0,15);
+  const available=esperaRows.filter(r=>!usedOts.has(r.ot));
+  // Match priority: 1) POP prefix, 2) POP/elemento contains zone, 3) gestorRc match, 4) all available
+  const popMatch=r=>{
+    if(!r.pop&&!r.elemento) return false;
+    const hay=(r.pop||'')+' '+(r.elemento||'');
+    return zones.some(z=>hay.toUpperCase().startsWith(z.toUpperCase()+'/')||hay.toUpperCase().startsWith(z.toUpperCase()+'-')||new RegExp('\\b'+z+'\\b','i').test(hay));
+  };
+  const gestorMatch=r=>{
+    const tg=(team.gestor||'').split(/[\s-]/)[0].toLowerCase();
+    return tg.length>3&&(r.gestorRc||'').toLowerCase().includes(tg);
+  };
+  let candidates=available.filter(popMatch);
+  let matchLabel=zones.slice(0,5).join('/');
+  if(!candidates.length&&zones.length){
+    // Try substring anywhere in pop
+    candidates=available.filter(r=>zones.some(z=>(r.pop||'').toUpperCase().includes(z.toUpperCase())));
+    if(candidates.length) matchLabel+=' (parcial)';
+  }
+  if(!candidates.length){
+    candidates=available.filter(gestorMatch);
+    if(candidates.length) matchLabel=team.gestor||'Gestor';
+  }
+  if(!candidates.length){
+    candidates=available.slice(0,20);
+    matchLabel='Todas disponíveis';
+  }
+  candidates=candidates.slice(0,15);
   const panel=document.getElementById('le-suggest');
-  document.getElementById('le-sug-zona').textContent=zones.slice(0,5).join('/') || '—';
+  document.getElementById('le-sug-zona').textContent=matchLabel||'—';
   const list=document.getElementById('le-sug-list');
   if(!candidates.length){
-    list.innerHTML=`<div class="le-suggest-empty">${esperaRows.length?'Sem OTs disponíveis na zona '+zones.join('/'):'Importe a Lista de Espera primeiro'}</div>`;
+    list.innerHTML=`<div class="le-suggest-empty">${esperaRows.length?'Sem OTs disponíveis (todas já atribuídas ou sem zona)':'Importe a Lista de Espera primeiro'}</div>`;
   } else {
     list.innerHTML=candidates.map(r=>{
       const hasDrop=/^(s|sim|yes|1)/i.test(r.drop||'');
       const tipo=r.tipo||'';
-      return `<div class="le-suggest-row" onclick="assignOtFromLE('${r.ot}')">
-        <div class="le-sug-ot">${esc(r.ot)} ${hasDrop?'<span class="le-sug-drop">🏠 Drop</span>':''}</div>
-        <div class="le-sug-meta">${esc(r.pop||'')}${tipo?' · '+esc(tipo):''}${r.cliente?' · '+esc(r.cliente.substring(0,20)):''}${r.distancia?' · '+r.distancia.toFixed(1)+'km':''}</div>
+      const popEl=[r.pop,r.elemento].filter(Boolean).join(' · ');
+      return `<div class="le-suggest-row" onclick="assignOtFromLE('${esc(r.ot)}')">
+        <div class="le-sug-ot">${esc(r.ot)}${hasDrop?' <span class="le-sug-drop">Drop instalado</span>':''}</div>
+        <div class="le-sug-meta">${esc(popEl)}${tipo?' · '+esc(tipo):''}${r.cliente?' · '+esc(r.cliente.substring(0,22)):''}${r.distancia?' · '+r.distancia.toFixed(1)+'km':''}</div>
       </div>`;
     }).join('');
   }
