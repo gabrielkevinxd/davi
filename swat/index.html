@@ -2272,61 +2272,72 @@ function parseGanttPaste(rawText){
         continue;
       }
 
-      // Extract OT sequence: process flag+OT pairs and standalone OTs
-      const otSeq=[]; // [{ot, flag}]
-      let j=0;
-      while(j<block.length){
-        const bl=block[j];
-        if(isFlag(bl)){
-          // Check if next line is an OT
-          const nx=block[j+1]?.trim()||'';
-          const nxClean=stripFlags(nx);
-          if(isOT(nxClean)){
-            otSeq.push({ot:nxClean,flag:bl});
-            j+=2;continue;
-          } else {
-            // Standalone flag = empty slot placeholder (skip in sequential fill)
-            otSeq.push({ot:'',flag:bl});
-            j++;continue;
+      // POSITIONAL parsing: Google Script table has tab-separated columns = hours
+      // Header line cells: [0]=name+code, [1]=zona, [2]=zonaAtua, [3..14]=hour slots (8h..19h)
+      // Sub-rows (block): same column structure, name/zona cols are empty
+      const HOUR_COL=3; // first hour column index
+      const slots=Array.from({length:NSLOTS},()=>({ot:'',tipo:'',pop:'',obs:''}));
+
+      // Detect if data is positional (header or block lines have ≥ HOUR_COL+1 tab-separated cells)
+      const isGridRow=l=>l.split('\t').length>=HOUR_COL+2;
+      const headerHasHours=cells.slice(HOUR_COL).some(c=>c&&(isOT(stripFlags(c))||isFlag(c)));
+      const blockGridRows=block.filter(isGridRow);
+      const usePositional=headerHasHours||blockGridRows.length>=2;
+
+      if(usePositional){
+        // Determine which grid rows are OT, tipo, POP, obs
+        // If header has OTs → header=OT, blockGridRows[0]=tipo, [1]=POP, [2]=obs
+        // If header has no OTs → blockGridRows[0]=OT, [1]=tipo, [2]=POP, [3]=obs
+        let otRow=null, tipoRow=null, popRow=null, obsRow=null;
+        if(headerHasHours){
+          otRow=cells;
+          tipoRow=blockGridRows[0]?.split('\t').map(c=>c.trim());
+          popRow =blockGridRows[1]?.split('\t').map(c=>c.trim());
+          obsRow =blockGridRows[2]?.split('\t').map(c=>c.trim());
+        } else {
+          otRow  =blockGridRows[0]?.split('\t').map(c=>c.trim());
+          tipoRow=blockGridRows[1]?.split('\t').map(c=>c.trim());
+          popRow =blockGridRows[2]?.split('\t').map(c=>c.trim());
+          obsRow =blockGridRows[3]?.split('\t').map(c=>c.trim());
+        }
+        const getCol=(row,col)=>row&&row.length>col?row[col]:'';
+        for(let si=0;si<NSLOTS;si++){
+          const col=HOUR_COL+si;
+          const rawOT=stripFlags(getCol(otRow,col));
+          const ot=isOT(rawOT)?rawOT:(isFlag(getCol(otRow,col))?stripFlags(getCol(tipoRow,col)||''):'');
+          // If OT col has a flag, OT may be on tipo row (some layouts)
+          const resolvedOT=isOT(rawOT)?rawOT:'';
+          const tipo=getCol(tipoRow,col)||'';
+          const pop=getCol(popRow,col)||'';
+          const obs=getCol(obsRow,col)||'';
+          if(resolvedOT||tipo||pop){
+            slots[si]={ot:resolvedOT,tipo:isTipo(tipo)?tipo:'',pop:isPOP(pop)?pop:'',obs:obs!=='Nota livre...'?obs:''};
           }
         }
-        // Line with OT+flag combined (e.g. copied as single cell)
-        const combined=stripFlags(bl);
-        if(isOT(combined)){
-          otSeq.push({ot:combined,flag:''});
-          j++;continue;
+      } else {
+        // Fallback: sequential fill from slot 0 (8h)
+        const otSeq=[];
+        let j=0;
+        while(j<block.length){
+          const bl=block[j];
+          if(isFlag(bl)){
+            const nx=block[j+1]?.trim()||'';
+            const nxClean=stripFlags(nx);
+            if(isOT(nxClean)){otSeq.push({ot:nxClean});j+=2;continue;}
+            else{otSeq.push({ot:''});j++;continue;}
+          }
+          const combined=stripFlags(bl);
+          if(isOT(combined)){otSeq.push({ot:combined});j++;continue;}
+          j++;
         }
-        j++;
-      }
-
-      // Extract tipos (in order, matching non-empty OT slots)
-      const tipos=block.filter(isTipo);
-      // Extract POPs (in order)
-      const pops=block.filter(isPOP);
-      // Extract notes (not default "Nota livre...", not tipos/POPs/stats/flags/OTs/emojis)
-      const noteLines=block.filter(l=>
-        l!=='Nota livre...'&&l!=='Nota livre...'&&
-        !isTipo(l)&&!isPOP(l)&&!isFlag(l)&&!isOT(stripFlags(l))&&
-        !/^\d+\t/.test(l)&&!/^[✉️💡🔀🔁✉\u{1F4A1}\u{1F500}]/.test(l)&&
-        !/^\[/.test(l)&&l.length>2&&l!=='—'
-      );
-
-      // Build slots: otSeq has all slots (empty or filled) in temporal order
-      const slots=Array.from({length:NSLOTS},()=>({ot:'',tipo:'',pop:'',obs:''}));
-      let tipoIdx=0,popIdx=0,noteIdx=0;
-      let slotFill=0;
-      for(let s=0;s<otSeq.length&&slotFill<NSLOTS;s++){
-        const {ot}=otSeq[s];
-        if(ot){
-          slots[slotFill]={
-            ot,
-            tipo:tipos[tipoIdx]||'',
-            pop:pops[popIdx]||'',
-            obs:noteLines[noteIdx]&&noteLines[noteIdx]!=='Nota livre...'?noteLines[noteIdx]:''
-          };
-          tipoIdx++;popIdx++;noteIdx++;
+        const tipos=block.filter(isTipo);
+        const pops=block.filter(isPOP);
+        let tipoIdx=0,popIdx=0,slotFill=0;
+        for(let s=0;s<otSeq.length&&slotFill<NSLOTS;s++){
+          const {ot}=otSeq[s];
+          if(ot){slots[slotFill]={ot,tipo:tipos[tipoIdx]||'',pop:pops[popIdx]||'',obs:''}; tipoIdx++;popIdx++;}
+          slotFill++;
         }
-        slotFill++;
       }
 
       teams.push({gestor,equipaNome,equipaCod,zona,zonaAtua,nInst,nSup,nAdic,fechado:false,_source:'paste',slots});
