@@ -683,6 +683,37 @@ tbody tr:hover td{background:var(--s1)}
 .status-legend{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--t2)}
 .sl-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 .sl-done{background:#22c55e}.sl-wip{background:#f59e0b}.sl-notok{background:#6b7280}
+/* drop badge */
+.slot-drop{position:absolute;top:2px;left:2px;font-size:8px;line-height:1;z-index:2;opacity:.75;pointer-events:none}
+/* empty slot suggest hint */
+.gd-slot.st-vazio:hover .slot-inner::after{content:'+ LE';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--t3);letter-spacing:.05em}
+.slot-inner{position:relative}
+/* team ETA chip */
+.team-eta{display:inline-flex;align-items:center;gap:4px;margin-top:4px;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:700;background:var(--s2);color:var(--t2);border:1px solid var(--line2)}
+.team-eta-warn{background:var(--a-dim);color:var(--a-text);border-color:var(--amber);animation:pulse-warn 2s infinite}
+@keyframes pulse-warn{0%,100%{opacity:1}50%{opacity:.65}}
+/* right-click context menu */
+.ctx-menu{position:fixed;z-index:9999;background:var(--s1);border:1px solid var(--line2);border-radius:8px;padding:4px 0;min-width:160px;box-shadow:0 8px 24px #00000066;display:none}
+.ctx-menu.open{display:block}
+.ctx-item{padding:7px 14px;font-size:12px;color:var(--t1);cursor:pointer;transition:.1s;display:flex;align-items:center;gap:8px}
+.ctx-item:hover{background:var(--s2);color:var(--t0)}
+.ctx-item.danger{color:var(--r-text)}
+.ctx-item.danger:hover{background:var(--r-dim)}
+.ctx-sep{height:1px;background:var(--line2);margin:3px 0}
+/* LE suggest panel */
+.le-suggest{position:fixed;z-index:9998;background:var(--s1);border:1px solid var(--line2);border-radius:10px;padding:8px 0;width:300px;max-height:320px;overflow:hidden;display:none;box-shadow:0 8px 24px #00000077;flex-direction:column}
+.le-suggest.open{display:flex}
+.le-suggest-hd{padding:8px 12px 6px;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--line2);flex-shrink:0}
+.le-suggest-hd span{color:var(--t0)}
+.le-suggest-list{overflow-y:auto;flex:1}
+.le-suggest-row{padding:7px 12px;cursor:pointer;border-bottom:1px solid var(--line);transition:.1s;display:flex;flex-direction:column;gap:2px}
+.le-suggest-row:hover{background:var(--s2)}
+.le-sug-ot{font-family:var(--mono);font-size:11px;color:var(--t0);font-weight:600}
+.le-sug-meta{font-size:10px;color:var(--t2)}
+.le-sug-drop{color:var(--g-text);font-size:10px}
+.le-suggest-empty{padding:16px 12px;text-align:center;color:var(--t3);font-size:11px}
+.le-suggest-close{margin:4px 8px 0;padding:5px 10px;font-size:11px;border-radius:6px;border:1px solid var(--line2);background:var(--s2);color:var(--t2);cursor:pointer;width:calc(100% - 16px)}
+.le-suggest-close:hover{background:var(--s3);color:var(--t1)}
 
 /* counts + status cols */
 .gd-count{
@@ -757,6 +788,7 @@ mark.slot-hl{background:#facc1540;color:#fde68a;border-radius:2px;padding:0 1px;
 .tip-nome{font-size:11px;font-weight:700;color:var(--t0);line-height:1.3;margin-bottom:4px}
 .tip-tel{font-family:var(--mono);font-size:11px;color:var(--accent);white-space:nowrap}
 .tip-meta{font-size:10px;color:var(--t3);margin-top:3px}
+.tip-drop{font-size:10px;color:var(--g-text);margin-top:3px}
 .tip-arrow{
   position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);
   width:9px;height:5px;overflow:hidden;
@@ -1186,6 +1218,19 @@ mark.slot-hl{background:#facc1540;color:#fde68a;border-radius:2px;padding:0 1px;
   </div>
 </main>
 
+<!-- Context menu (right-click on Gantt slot) -->
+<div class="ctx-menu" id="ctx-menu">
+  <div class="ctx-item" id="ctx-edit" onclick="ctxEdit()">✏️ Editar slot</div>
+  <div class="ctx-item" id="ctx-suggest" onclick="ctxSuggest()">🔍 Sugerir LE</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item danger" id="ctx-clear" onclick="ctxClearSlot()">🗑️ Remover OT</div>
+</div>
+<!-- LE suggest panel -->
+<div class="le-suggest" id="le-suggest">
+  <div class="le-suggest-hd">OTs disponíveis · Zona <span id="le-sug-zona">—</span></div>
+  <div class="le-suggest-list" id="le-sug-list"></div>
+  <button class="le-suggest-close" onclick="closeLeSuggest()">Cancelar</button>
+</div>
 <!-- Meus Técnicos modal -->
 <!-- Paste modal -->
 <div class="paste-overlay hidden" id="paste-modal">
@@ -2443,11 +2488,24 @@ function renderGantt(){
     // equipa cell
     const tdEq=document.createElement('td');
     tdEq.className='gd-equipa';
+    // ETA estimate: last filled slot + avg duration
+    const filledSlots=t.slots.filter(s=>s.ot);
+    const lastFilledIdx=t.slots.reduce((acc,s,i)=>s.ot?i:acc,-1);
+    let etaHtml='';
+    if(filledSlots.length>0&&filledSlots.length<=3&&lastFilledIdx>=0){
+      const dropCount=filledSlots.filter(s=>{ const r=clienteForOt(s.ot); return r&&/^s|sim|yes|1/i.test(r.drop||''); }).length;
+      const avgDur=dropCount>=filledSlots.length?1:2; // all drops=1h avg, mixed/normal=2h
+      const lastHour=parseInt(GANTT_HOURS[lastFilledIdx]);
+      const eta=lastHour+avgDur;
+      const warn=filledSlots.length<=2;
+      etaHtml=`<div class="team-eta${warn?' team-eta-warn':''}" title="Estimativa de conclusão">⏱ ~${eta}h livre · ${filledSlots.length} trab.</div>`;
+    }
     tdEq.innerHTML=`
       <div class="gd-equipa-name">${esc(t.equipaNome)}</div>
       ${t.equipaCod?`<div class="gd-equipa-cod">${esc(t.equipaCod)}</div>`:''}
       ${t.gestor?`<div class="gd-equipa-gestor">${esc(t.gestor)}</div>`:''}
-      ${t.zona?`<div class="gd-equipa-zona">${esc(t.zona)}${t.zonaAtua?' · '+esc(t.zonaAtua.substring(0,30)):''}</div>`:''}`;
+      ${t.zona?`<div class="gd-equipa-zona">${esc(t.zona)}${t.zonaAtua?' · '+esc(t.zonaAtua.substring(0,30)):''}</div>`:''}
+      ${etaHtml}`;
     tr.appendChild(tdEq);
 
     // slot cells
@@ -2466,20 +2524,27 @@ function renderGantt(){
       if(s.status) td.dataset.status=s.status;
 
       const cli=s.ot?clienteForOt(s.ot):null;
+      const hasDrop=cli&&/^(s|sim|yes|1)/i.test(cli.drop||'');
       const tipHtml=s.ot&&(cli||s.pop)?`<div class="slot-tip">
         ${cli?.cliente?`<div class="tip-nome">${esc(cli.cliente)}</div>`:''}
         ${cli?.contacto?`<div class="tip-tel">📞 ${esc(cli.contacto)}</div>`:''}
         ${s.ot?`<div class="tip-meta">OT ${esc(s.ot)}${s.pop?' · '+esc(s.pop):''}</div>`:''}
+        ${hasDrop?`<div class="tip-drop">🏠 Drop instalado — execução mais rápida</div>`:''}
         <div class="tip-arrow"></div>
       </div>`:'';
       const statusTitle=s.status==='done'?'Concluída':s.status==='wip'?'Em execução':s.status==='notok'?'Não OK':'Marcar estado';
-      td.innerHTML=`<button class="slot-status-btn" title="${statusTitle}"></button><div class="slot-inner">
+      td.innerHTML=`<button class="slot-status-btn" title="${statusTitle}"></button>${hasDrop?'<span class="slot-drop" title="Drop instalado">🏠</span>':''}<div class="slot-inner">
         ${s.tipo?`<div class="slot-tipo">${esc(tipoLabel(s.tipo)||s.tipo)}</div>`:''}
         ${s.ot?`<div class="slot-ot">${esc(s.ot)}</div>`:''}
         ${s.pop?`<div class="slot-pop">${sf&&s._slotMatch?`<mark class="slot-hl">${esc(s.pop)}</mark>`:esc(s.pop)}</div>`:''}
       </div>${tipHtml}`;
       td.querySelector('.slot-status-btn').onclick=e=>{e.stopPropagation();cycleSlotStatus(day,ti,si);};
-      td.onclick=()=>openModal(day,ti,si,t,s);
+      if(!s.ot){
+        td.onclick=e=>{ e.stopPropagation(); openLeSuggest(day,ti,si,t,e); };
+      } else {
+        td.onclick=()=>openModal(day,ti,si,t,s);
+      }
+      td.oncontextmenu=e=>{ e.preventDefault(); openCtxMenu(e,day,ti,si,t,s); };
       tr.appendChild(td);
     });
 
@@ -2571,6 +2636,102 @@ function cycleSlotStatus(day,teamIdx,slotIdx){
   ganttEdits[day][k]={...(ganttEdits[day][k]||{}),status:next};
   save('swat_gantt_edits',ganttEdits);
   renderGantt();
+}
+
+// ══ Context menu (right-click) ══
+let _ctxCtx=null;
+function openCtxMenu(e,day,ti,si,team,slot){
+  closeCtxMenu(); closeLeSuggest();
+  _ctxCtx={day,ti,si,team,slot};
+  const m=document.getElementById('ctx-menu');
+  const hasOt=!!(slot.ot);
+  document.getElementById('ctx-clear').style.display=hasOt?'':'none';
+  document.getElementById('ctx-suggest').style.display=esperaRows.length?'':'none';
+  m.style.left=Math.min(e.clientX,window.innerWidth-170)+'px';
+  m.style.top=Math.min(e.clientY,window.innerHeight-120)+'px';
+  m.classList.add('open');
+  setTimeout(()=>document.addEventListener('click',closeCtxMenu,{once:true}),0);
+}
+function closeCtxMenu(){document.getElementById('ctx-menu').classList.remove('open');}
+function ctxEdit(){
+  if(!_ctxCtx) return; closeCtxMenu();
+  const {day,ti,si,team,slot}=_ctxCtx;
+  openModal(day,ti,si,team,slot);
+}
+function ctxSuggest(){
+  if(!_ctxCtx) return; closeCtxMenu();
+  const {day,ti,si,team}=_ctxCtx;
+  const rect=document.querySelector(`#gantt-tbody tr:nth-child(${_ctxCtx.ti+1}) td:nth-child(${si+2})`);
+  openLeSuggest(day,ti,si,team,null);
+}
+function ctxClearSlot(){
+  if(!_ctxCtx) return; closeCtxMenu();
+  const {day,ti,si}=_ctxCtx;
+  if(!ganttEdits[day]) ganttEdits[day]={};
+  const k=`${ti}_${si}`;
+  const existing=ganttEdits[day][k]||{};
+  ganttEdits[day][k]={...existing,ot:'',tipo:'',pop:'',obs:''};
+  save('swat_gantt_edits',ganttEdits);
+  renderGantt();
+  toast('Slot limpo');
+}
+
+// ══ LE suggest panel ══
+let _sugCtx=null;
+function openLeSuggest(day,ti,si,team,e){
+  closeLeSuggest(); closeCtxMenu();
+  _sugCtx={day,ti,si,team};
+  // Build zone list from team's zonaAtua
+  const zones=(team.zonaAtua||'').split(/[\/,\s]+/).filter(z=>/^[A-Z]\d+/.test(z));
+  // Collect all OTs already in today's gantt to exclude
+  const usedOts=new Set();
+  (ganttSheets[day]||[]).forEach(t=>t.slots.forEach(s=>{if(s.ot) usedOts.add(s.ot);}));
+  Object.values(ganttEdits[day]||{}).forEach(ed=>{if(ed.ot) usedOts.add(ed.ot);});
+  // Filter LE: zone match + not used
+  const candidates=esperaRows.filter(r=>{
+    if(usedOts.has(r.ot)) return false;
+    if(!r.pop) return false;
+    const popZone=r.pop.split('/')[0];
+    return zones.some(z=>z===popZone);
+  }).slice(0,15);
+  const panel=document.getElementById('le-suggest');
+  document.getElementById('le-sug-zona').textContent=zones.slice(0,5).join('/') || '—';
+  const list=document.getElementById('le-sug-list');
+  if(!candidates.length){
+    list.innerHTML=`<div class="le-suggest-empty">${esperaRows.length?'Sem OTs disponíveis na zona '+zones.join('/'):'Importe a Lista de Espera primeiro'}</div>`;
+  } else {
+    list.innerHTML=candidates.map(r=>{
+      const hasDrop=/^(s|sim|yes|1)/i.test(r.drop||'');
+      const tipo=r.tipo||'';
+      return `<div class="le-suggest-row" onclick="assignOtFromLE('${r.ot}')">
+        <div class="le-sug-ot">${esc(r.ot)} ${hasDrop?'<span class="le-sug-drop">🏠 Drop</span>':''}</div>
+        <div class="le-sug-meta">${esc(r.pop||'')}${tipo?' · '+esc(tipo):''}${r.cliente?' · '+esc(r.cliente.substring(0,20)):''}${r.distancia?' · '+r.distancia.toFixed(1)+'km':''}</div>
+      </div>`;
+    }).join('');
+  }
+  // Position near the click or center-right
+  let top=120, left=window.innerWidth/2-150;
+  if(e){
+    left=Math.min(e.clientX+10,window.innerWidth-310);
+    top=Math.min(e.clientY-20,window.innerHeight-340);
+  }
+  panel.style.left=left+'px';
+  panel.style.top=top+'px';
+  panel.classList.add('open');
+}
+function closeLeSuggest(){document.getElementById('le-suggest').classList.remove('open');_sugCtx=null;}
+function assignOtFromLE(ot){
+  if(!_sugCtx) return;
+  const {day,ti,si}=_sugCtx;
+  const r=otIndex[ot];
+  if(!ganttEdits[day]) ganttEdits[day]={};
+  const k=`${ti}_${si}`;
+  const existing=ganttEdits[day][k]||{};
+  ganttEdits[day][k]={...existing,ot,tipo:r?.tipo||'',pop:r?.pop||'',obs:''};
+  save('swat_gantt_edits',ganttEdits);
+  closeLeSuggest();
+  renderGantt();
+  toast(`OT ${ot} atribuída`);
 }
 
 // ══════════════════════════════════════════════
