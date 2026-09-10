@@ -185,6 +185,27 @@ a{color:inherit;text-decoration:none}
 .import-chip.ic-flat.loaded{border-color:var(--accent);color:var(--accent-strong);background:var(--accent-dim)}
 .import-chip.ic-flat.loaded .ic-dot{background:var(--accent)}
 .import-chip.ic-flat.loaded .ic-label{color:var(--accent-strong)}
+.import-chip.ic-paste.loaded{border-color:#a78bfa;color:#c4b5fd;background:#2a1a4e22}
+.import-chip.ic-paste.loaded .ic-dot{background:#a78bfa}
+.import-chip.ic-paste.loaded .ic-label{color:#c4b5fd}
+
+/* Paste modal */
+.paste-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:700;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px)}
+.paste-overlay.hidden{display:none}
+.paste-box{background:var(--s0);border:1px solid var(--line2);border-radius:12px;padding:20px;width:680px;max-width:calc(100vw - 24px);max-height:90vh;display:flex;flex-direction:column;gap:14px;box-shadow:0 24px 64px rgba(0,0,0,.6)}
+.paste-hd{display:flex;align-items:center;justify-content:space-between}
+.paste-hd-title{font-size:14px;font-weight:700;color:var(--t0)}
+.paste-hd-close{background:none;border:none;color:var(--t2);font-size:18px;cursor:pointer;line-height:1}
+.paste-hd-close:hover{color:var(--t0)}
+.paste-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.paste-row label{font-size:11px;font-weight:600;color:var(--t2)}
+.paste-row select{background:var(--s1);border:1px solid var(--line2);color:var(--t0);padding:5px 8px;border-radius:6px;font-size:12px}
+.paste-area{width:100%;min-height:220px;max-height:340px;resize:vertical;background:var(--s1);border:1px solid var(--line2);border-radius:8px;color:var(--t0);font-family:var(--mono);font-size:11px;padding:10px;box-sizing:border-box;line-height:1.4;tab-size:4}
+.paste-area:focus{outline:none;border-color:var(--accent)}
+.paste-preview{background:var(--s1);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--t1);min-height:36px}
+.paste-preview b{color:var(--t0)}
+.paste-actions{display:flex;gap:8px;justify-content:flex-end;padding-top:4px}
+.paste-note{font-size:10px;color:var(--t3);line-height:1.4}
 
 .topbar-sep{width:1px;height:18px;background:var(--line);flex-shrink:0}
 .topbar-spacer{flex:1;min-width:8px}
@@ -227,6 +248,11 @@ a{color:inherit;text-decoration:none}
 .btn-reag:hover,.btn-reag.active{background:var(--red);color:#fff}
 .btn-reag.active{background:var(--red);color:#fff}
 .btn-xs{padding:3px 8px;font-size:11px;border-radius:4px}
+.btn-pri{display:inline-flex;align-items:center;padding:7px 16px;border-radius:7px;font-size:12px;font-weight:700;border:none;cursor:pointer;background:var(--accent);color:#fff;transition:.15s}
+.btn-pri:hover:not(:disabled){opacity:.85}
+.btn-pri:disabled{opacity:.4;cursor:not-allowed}
+.btn-sec{display:inline-flex;align-items:center;padding:7px 14px;border-radius:7px;font-size:12px;font-weight:600;border:1px solid var(--line2);background:var(--s1);color:var(--t1);cursor:pointer;transition:.15s}
+.btn-sec:hover{background:var(--s2);color:var(--t0)}
 
 /* ══════════════════════ BADGES / CHIPS ══════════════════════ */
 .badge{
@@ -1022,6 +1048,12 @@ mark.slot-hl{background:#facc1540;color:#fde68a;border-radius:2px;padding:0 1px;
       <span class="ic-label" id="chip-gantt-flat-lbl">+ Adicionar dias</span>
       <button class="ic-clear" onclick="event.stopPropagation();clearGanttFlat()">✕</button>
     </div>
+    <div class="import-chip ic-paste" id="chip-gantt-paste" onclick="openPasteModal()" title="Cola o planeamento diário do Google Script (Ctrl+C → Ctrl+V)">
+      <span class="ic-dot"></span>
+      <span>Colar</span>
+      <span class="ic-label" id="chip-gantt-paste-lbl">Google Script</span>
+      <button class="ic-clear" onclick="event.stopPropagation();clearGanttPaste()">✕</button>
+    </div>
     <div class="topbar-sep"></div>
     <div class="filter-row" id="gantt-filter-row" style="flex-wrap:wrap;gap:8px">
       <!-- Gestor RC multi-select -->
@@ -1136,6 +1168,34 @@ mark.slot-hl{background:#facc1540;color:#fde68a;border-radius:2px;padding:0 1px;
 </main>
 
 <!-- Meus Técnicos modal -->
+<!-- Paste modal -->
+<div class="paste-overlay hidden" id="paste-modal">
+  <div class="paste-box">
+    <div class="paste-hd">
+      <span class="paste-hd-title">📋 Colar Planeamento Diário — Google Script</span>
+      <button class="paste-hd-close" onclick="closePasteModal()">✕</button>
+    </div>
+    <div class="paste-row">
+      <label>Dia do planeamento:</label>
+      <select id="paste-day-sel">
+        <option value="SegundaFeira">Segunda</option>
+        <option value="TercaFeira">Terça</option>
+        <option value="QuartaFeira">Quarta</option>
+        <option value="QuintaFeira">Quinta</option>
+        <option value="SextaFeira">Sexta</option>
+        <option value="Sabado">Sábado</option>
+      </select>
+      <span class="paste-note">Os horários são preenchidos na ordem que aparecem no planeamento (9h→ …)</span>
+    </div>
+    <textarea id="paste-area" class="paste-area" placeholder="Ctrl+V aqui — cola diretamente do Google Script (seleciona toda a tabela e copia)&#10;&#10;O SWAT reconhece automaticamente: equipa, OTs, tipo de serviço (MEO/VDF/…), POP e notas." oninput="onPasteInput()"></textarea>
+    <div class="paste-preview" id="paste-preview">Cole o texto acima para pré-visualizar as equipas reconhecidas.</div>
+    <div class="paste-actions">
+      <button class="btn-sec" onclick="closePasteModal()">Cancelar</button>
+      <button class="btn-pri" id="paste-import-btn" onclick="confirmPasteImport()" disabled>Importar</button>
+    </div>
+  </div>
+</div>
+
 <div class="mt-modal-overlay hidden" id="mt-modal">
   <div class="mt-modal">
     <div class="mt-modal-head">
@@ -2054,9 +2114,9 @@ function updateGanttEmpty(){
 }
 
 function clearGanttMatrix(){
-  // Remove matrix-sourced teams; keep flat-only teams
+  // Remove matrix-sourced teams; keep flat and paste teams
   DAY_ORDER.forEach(k=>{
-    if(ganttSheets[k]) ganttSheets[k]=ganttSheets[k].filter(t=>t._source==='flat');
+    if(ganttSheets[k]) ganttSheets[k]=ganttSheets[k].filter(t=>t._source==='flat'||t._source==='paste');
     if(ganttSheets[k]&&!ganttSheets[k].length) delete ganttSheets[k];
   });
   save('swat_gantt_sheets',ganttSheets);
@@ -2083,6 +2143,202 @@ function clearGanttFlat(){
   buildGanttDayPills(); renderGantt();
 }
 
+// ── Paste (Google Script) ──────────────────────────────────────────────────
+let _pasteTeamsParsed = [];
+
+function openPasteModal(){
+  // Default day = today's weekday
+  const WD=[null,'SegundaFeira','TercaFeira','QuartaFeira','QuintaFeira','SextaFeira','Sabado'];
+  const todayKey=WD[new Date().getDay()]||'SegundaFeira';
+  const sel=document.getElementById('paste-day-sel');
+  sel.value=todayKey;
+  document.getElementById('paste-area').value='';
+  document.getElementById('paste-preview').textContent='Cole o texto acima para pré-visualizar as equipas reconhecidas.';
+  document.getElementById('paste-import-btn').disabled=true;
+  _pasteTeamsParsed=[];
+  document.getElementById('paste-modal').classList.remove('hidden');
+}
+
+function closePasteModal(){
+  document.getElementById('paste-modal').classList.add('hidden');
+}
+
+function onPasteInput(){
+  const text=document.getElementById('paste-area').value;
+  if(!text.trim()){ _pasteTeamsParsed=[]; document.getElementById('paste-preview').textContent='Cole o texto acima...'; document.getElementById('paste-import-btn').disabled=true; return; }
+  try{
+    _pasteTeamsParsed=parseGanttPaste(text);
+    const n=_pasteTeamsParsed.length;
+    const ots=_pasteTeamsParsed.reduce((s,t)=>s+t.slots.filter(sl=>sl.ot).length,0);
+    const prev=document.getElementById('paste-preview');
+    if(n>0){
+      prev.innerHTML=`<b>${n} equipa${n!==1?'s':''} reconhecida${n!==1?'s':''}</b> · ${ots} OTs · `+
+        _pasteTeamsParsed.slice(0,4).map(t=>`<span style="color:var(--accent)">${t.equipaCod||t.equipaNome}</span>`).join(', ')+(n>4?` e mais ${n-4}…`:'');
+      document.getElementById('paste-import-btn').disabled=false;
+    } else {
+      prev.innerHTML='<span style="color:var(--red)">Nenhuma equipa reconhecida. Certifica-te de que copiaste a tabela completa.</span>';
+      document.getElementById('paste-import-btn').disabled=true;
+    }
+  }catch(e){ console.error(e); }
+}
+
+function confirmPasteImport(){
+  if(!_pasteTeamsParsed.length) return;
+  const dayKey=document.getElementById('paste-day-sel').value;
+  if(!ganttSheets[dayKey]) ganttSheets[dayKey]=[];
+  ganttSheets[dayKey]=mergeGanttTeams(ganttSheets[dayKey], _pasteTeamsParsed);
+  save('swat_gantt_sheets',ganttSheets);
+  ganttActiveDay=dayKey;
+  const label=`${SHEET_DAY_MAP[dayKey]||dayKey} (${_pasteTeamsParsed.length}et)`;
+  document.getElementById('chip-gantt-paste').classList.add('loaded');
+  document.getElementById('chip-gantt-paste-lbl').textContent=label;
+  closePasteModal();
+  buildGanttDayPills(); populateGanttFilters(); renderGantt();
+  toast(`Planeamento colado — ${_pasteTeamsParsed.length} equipas importadas para ${SHEET_DAY_MAP[dayKey]||dayKey}`);
+}
+
+function clearGanttPaste(){
+  DAY_ORDER.forEach(k=>{
+    if(ganttSheets[k]) ganttSheets[k]=ganttSheets[k].filter(t=>t._source!=='paste');
+    if(ganttSheets[k]&&!ganttSheets[k].length) delete ganttSheets[k];
+  });
+  save('swat_gantt_sheets',ganttSheets);
+  document.getElementById('chip-gantt-paste').classList.remove('loaded');
+  document.getElementById('chip-gantt-paste-lbl').textContent='Google Script';
+  updateGanttEmpty(); buildGanttDayPills(); renderGantt();
+}
+
+// Parser: Google Script daily planning (Ctrl+C from web table)
+function parseGanttPaste(rawText){
+  const NSLOTS=GANTT_HOURS.length;
+  const isOT=s=>(/^\d{6,}$/.test(s)||/^3-\d{5,}$/.test(s)||/^18\d{5,}$/.test(s)||/^202\d{5,}$/.test(s));
+  const isTipo=s=>/^(MEO|VDF|NPR|NOS|NOWO|ONI)_(INST|SUP|ADI|ADIC)$/i.test(s);
+  const isPOP=s=>/^[A-Z]\d+\/[A-Z]/.test(s)||s==='ERRO';
+  const isFlag=s=>/^[❗🏠❗\u{1F3E0}]+$/u.test(s)||/^❗?🏠$/.test(s)||s==='❗'||s==='🏠'||s==='❗🏠';
+  const stripFlags=s=>s.replace(/[🏠❗❗\u{1F3E0}​]/gu,'').trim();
+  const isGestor=s=>s&&s.includes(' - ')&&!s.includes(' — ')&&!isTipo(s)&&!isPOP(s)&&!isOT(s);
+
+  // Normalize: split by newline, also split each line by tab (in case tabs are present)
+  const lines=rawText.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
+
+  const teams=[];
+  let gestor='';
+  let i=0;
+
+  while(i<lines.length){
+    const line=lines[i].trim();
+    if(!line){i++;continue;}
+
+    // Detect gestor separator line: contains " - " but not " — ", short, no numbers
+    if(isGestor(line)&&!line.includes(' — ')){
+      gestor=line.split(' - ')[0].trim();
+      i++;continue;
+    }
+
+    // Detect team line: contains " — " + code pattern
+    const teamMatch=line.match(/^(.+?)\s+—\s+([A-Z]{2,4}\d{4})\s*(\(\d+E\))?/);
+    if(teamMatch){
+      const equipaNome=teamMatch[1].trim();
+      const equipaCod=teamMatch[2].trim();
+
+      // Get inline tab-separated data (zona, zonaAtua, then hour slots)
+      const cells=lines[i].split('\t').map(c=>c.trim());
+      const zona=cells[1]||'';
+      const zonaAtua=cells[2]||'';
+
+      // Collect block lines until next team/gestor
+      i++;
+      const block=[];
+      while(i<lines.length){
+        const bl=lines[i].trim();
+        if(!bl){i++;continue;}
+        if(isGestor(bl)&&!bl.includes(' — ')){break;}
+        if(bl.match(/^(.+?)\s+—\s+[A-Z]{2,4}\d{4}/)){break;}
+        block.push(bl);
+        i++;
+      }
+
+      // Parse stats line: "3\t4\t0\t0" or adjacent digits
+      let nInst=0,nSup=0,nAdic=0;
+      const statLine=block.find(l=>/^\d+\s*\t\s*\d+\s*\t\s*\d+/.test(l)||/^\d+\t\d+\t\d+\t\d+/.test(l));
+      if(statLine){ const p=statLine.split('\t').map(x=>parseInt(x)||0); nInst=p[0]||0;nSup=p[1]||0;nAdic=p[2]||0; }
+
+      // Check indisponível
+      const isIndisp=block.some(l=>l.toLowerCase().includes('não disponível')||l.toLowerCase().includes('nao disponivel'));
+
+      if(isIndisp){
+        const slots=Array.from({length:NSLOTS},(_,si)=>({ot:'',tipo:si===0?'INDISPONIBILIDADE':'',pop:'',obs:''}));
+        teams.push({gestor,equipaNome,equipaCod,zona,zonaAtua,nInst:0,nSup:0,nAdic:0,fechado:false,_source:'paste',slots});
+        continue;
+      }
+
+      // Extract OT sequence: process flag+OT pairs and standalone OTs
+      const otSeq=[]; // [{ot, flag}]
+      let j=0;
+      while(j<block.length){
+        const bl=block[j];
+        if(isFlag(bl)){
+          // Check if next line is an OT
+          const nx=block[j+1]?.trim()||'';
+          const nxClean=stripFlags(nx);
+          if(isOT(nxClean)){
+            otSeq.push({ot:nxClean,flag:bl});
+            j+=2;continue;
+          } else {
+            // Standalone flag = empty slot placeholder (skip in sequential fill)
+            otSeq.push({ot:'',flag:bl});
+            j++;continue;
+          }
+        }
+        // Line with OT+flag combined (e.g. copied as single cell)
+        const combined=stripFlags(bl);
+        if(isOT(combined)){
+          otSeq.push({ot:combined,flag:''});
+          j++;continue;
+        }
+        j++;
+      }
+
+      // Extract tipos (in order, matching non-empty OT slots)
+      const tipos=block.filter(isTipo);
+      // Extract POPs (in order)
+      const pops=block.filter(isPOP);
+      // Extract notes (not default "Nota livre...", not tipos/POPs/stats/flags/OTs/emojis)
+      const noteLines=block.filter(l=>
+        l!=='Nota livre...'&&l!=='Nota livre...'&&
+        !isTipo(l)&&!isPOP(l)&&!isFlag(l)&&!isOT(stripFlags(l))&&
+        !/^\d+\t/.test(l)&&!/^[✉️💡🔀🔁✉\u{1F4A1}\u{1F500}]/.test(l)&&
+        !/^\[/.test(l)&&l.length>2&&l!=='—'
+      );
+
+      // Build slots: otSeq has all slots (empty or filled) in temporal order
+      const slots=Array.from({length:NSLOTS},()=>({ot:'',tipo:'',pop:'',obs:''}));
+      let tipoIdx=0,popIdx=0,noteIdx=0;
+      let slotFill=0;
+      for(let s=0;s<otSeq.length&&slotFill<NSLOTS;s++){
+        const {ot}=otSeq[s];
+        if(ot){
+          slots[slotFill]={
+            ot,
+            tipo:tipos[tipoIdx]||'',
+            pop:pops[popIdx]||'',
+            obs:noteLines[noteIdx]&&noteLines[noteIdx]!=='Nota livre...'?noteLines[noteIdx]:''
+          };
+          tipoIdx++;popIdx++;noteIdx++;
+        }
+        slotFill++;
+      }
+
+      teams.push({gestor,equipaNome,equipaCod,zona,zonaAtua,nInst,nSup,nAdic,fechado:false,_source:'paste',slots});
+      continue;
+    }
+    i++;
+  }
+  return teams;
+}
+
+document.getElementById('paste-modal').addEventListener('click',e=>{if(e.target.id==='paste-modal')closePasteModal();});
+
 function clearGantt(){
   ganttSheets={}; ganttEdits={};
   save('swat_gantt_sheets',null); save('swat_gantt_edits',null);
@@ -2090,6 +2346,8 @@ function clearGantt(){
   document.getElementById('chip-gantt-lbl').textContent='XLSB / XLSX';
   document.getElementById('chip-gantt-flat').classList.remove('loaded');
   document.getElementById('chip-gantt-flat-lbl').textContent='+ Adicionar dias';
+  document.getElementById('chip-gantt-paste').classList.remove('loaded');
+  document.getElementById('chip-gantt-paste-lbl').textContent='Google Script';
   document.getElementById('gantt-empty').style.display='';
   document.getElementById('gantt-body').style.display='none';
   setCt('gantt',0);
@@ -2816,6 +3074,11 @@ document.getElementById('gantt-modal').addEventListener('click',e=>{ if(e.target
   if(hasFlat){
     document.getElementById('chip-gantt-flat-lbl').textContent='Export carregado';
     document.getElementById('chip-gantt-flat').classList.add('loaded');
+  }
+  const hasPaste=DAY_ORDER.some(k=>(ganttSheets[k]||[]).some(t=>t._source==='paste'));
+  if(hasPaste){
+    document.getElementById('chip-gantt-paste-lbl').textContent='Colado';
+    document.getElementById('chip-gantt-paste').classList.add('loaded');
   }
   buildGanttDayPills();
   populateGanttFilters();
